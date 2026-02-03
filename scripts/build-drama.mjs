@@ -21,29 +21,31 @@ const stripTags = (html) => html
   .replace(/&#39;/g, "'")
   .trim();
 
-function extractParagraphs(html){
+function extractBlocks(html){
   if(!html) return [];
   const normalized = html.replace(/\r/g, "").trim();
   if(!normalized) return [];
-  const parts = normalized.split(/<\/p>\s*<p>/i);
-  if(parts.length === 1){
-    return [normalized.replace(/^<p>/i, "").replace(/<\/p>$/i, "").trim()].filter(Boolean);
+  const blocks = [];
+  const rx = /<(p|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while((m = rx.exec(normalized))){
+    const inner = (m[2] || "").trim();
+    if(inner) blocks.push(inner);
   }
-  parts[0] = parts[0].replace(/^<p>/i, "");
-  parts[parts.length-1] = parts[parts.length-1].replace(/<\/p>$/i, "");
-  return parts.map(p => p.trim()).filter(Boolean);
+  if(blocks.length) return blocks;
+  return [normalized];
 }
 
 async function docxToBlocks(file){
   const result = await mammoth.convertToHtml({ path: file }, { styleMap: ["u => u"] });
   const html = result.value || "";
-  return extractParagraphs(html);
+  return extractBlocks(html);
 }
 
 function splitDays(blocks){
   const days = new Map();
   let current = null;
-  const dayRe = /^\s*Day\s+(\d+)\b/i;
+  const dayRe = /^\s*[-–—]*\s*Day\s+(\d+)\b/i;
   for(const block of blocks){
     const plain = stripTags(block);
     const m = plain.match(dayRe);
@@ -125,13 +127,15 @@ async function main(){
     worlds.push({ id: "theory-tragedy", name: "THEORY TRAGEDY", days, stats: { days: days.length, blocks: count } });
   }
 
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15);
   const out = {
-    version: new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15),
+    version: stamp,
     canonical: "core",
     worlds,
   };
 
   fs.writeFileSync("data/drama_worlds.json", JSON.stringify(out, null, 2));
+  fs.writeFileSync("data/build.json", JSON.stringify({ build: stamp }, null, 2));
   console.log("wrote", worlds.length, "worlds");
 }
 

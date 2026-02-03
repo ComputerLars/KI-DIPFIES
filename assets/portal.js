@@ -4,9 +4,7 @@
   const ROT = [
     { bg:"black", fg:"green", btn:"white", ink:"light" },
     { bg:"black", fg:"white", btn:"green", ink:"light" },
-    { bg:"green", fg:"black", btn:"white", ink:"dark" },
     { bg:"green", fg:"white", btn:"black", ink:"light" },
-    { bg:"white", fg:"black", btn:"green", ink:"dark" },
     { bg:"white", fg:"green", btn:"black", ink:"light" },
   ];
 
@@ -55,6 +53,7 @@
     let esc = escapeHTML(s);
     esc = esc.replace(/\+\+([\s\S]+?)\+\+/g, "<u>$1</u>");
     esc = esc.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+    esc = esc.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
     esc = esc.replace(/(^|[^\\w])_([\\s\\S]+?)_(?=[^\\w]|$)/g, "$1<em>$2</em>");
     return esc;
   };
@@ -249,11 +248,35 @@
     }catch{}
   }
 
+  function inferTime(world, day){
+    const timeRe = /\b([01]?\d|2[0-3]):[0-5]\d\b/;
+    const scan = (arr) => {
+      for(let i=arr.length-1;i>=0;i--){
+        const raw = safeText(arr[i] || "");
+        const m = raw.match(timeRe);
+        if(m) return m[0];
+      }
+      return "";
+    };
+    const buf = state.buffer.map(b => b.text);
+    const inBuf = scan(buf);
+    if(inBuf) return inBuf;
+    const blocks = day?.blocks || [];
+    const upto = Math.min(state.cursor, blocks.length);
+    for(let i=upto-1; i>=0 && i>=upto-140; i--){
+      const raw = safeText(blocks[i] || "");
+      const m = raw.match(timeRe);
+      if(m) return m[0];
+    }
+    return "";
+  }
   function setHUD(world, day){
     const d = day ? `DAY ${day.day}` : "DAY ?";
+    const t = inferTime(world, day);
+    const time = t ? `TIME ${t}` : "TIME --";
     const drift = `DRIFT ${Math.round(state.drift*100)}%`;
     const vec = `VECTOR ${state.vector}`;
-    $("#state").textContent = `${d} // ${drift} // ${vec}`;
+    $("#state").textContent = `${d} // ${time} // ${drift} // ${vec}`;
   }
 
   function renderBuffer(){

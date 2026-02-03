@@ -36,9 +36,13 @@
     scrollSnapshot:null,
     keywordIndex:null,
     vector:"BOOT",
+    prevWorld:null,
+    prevDay:null,
+    prevCursor:null,
   };
 
   const PRIMARY_WORLD_IDS = ["core","mirror","kopi"];
+  const FUTURE_WORLD_ID = "future-2027";
 
   const TOK_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:['’][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)?|[.,!?;:()]/g;
   const safeText = (x) => (x ?? "").toString();
@@ -156,6 +160,48 @@
     const playable = playableWorlds();
     const pick = playable.filter(w => PRIMARY_WORLD_IDS.includes(w.id));
     return pick.length ? pick : playable.filter(w => w.id !== "theory-tragedy");
+  }
+  function hasWorld(id){
+    return playableWorlds().some(w => w.id === id);
+  }
+  function timeJumpToFuture(){
+    const list = playableWorlds();
+    const future = list.find(w => w.id === FUTURE_WORLD_ID);
+    if(!future) return false;
+    if(state.worldId !== FUTURE_WORLD_ID){
+      state.prevWorld = state.worldId;
+      state.prevDay = state.dayNo;
+      state.prevCursor = state.cursor;
+    }
+    state.worldId = FUTURE_WORLD_ID;
+    const days = allDayNos(future);
+    state.dayNo = days[0] || 1;
+    state.cursor = 0;
+    state.buffer = [{ text:"(time jump: 2027)", hackled:false }];
+    state.chunkStack = [];
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.scrollTopNext = true;
+    return true;
+  }
+  function returnFromFuture(){
+    if(state.worldId !== FUTURE_WORLD_ID) return false;
+    const target = getWorldById(state.prevWorld || state.canonId);
+    if(!target) return false;
+    state.worldId = target.id;
+    const days = allDayNos(target);
+    const day = (state.prevDay && days.includes(state.prevDay)) ? state.prevDay : (days[0] || 1);
+    state.dayNo = day;
+    state.cursor = state.prevCursor || 0;
+    state.buffer = [{ text:"(returning from 2027)", hackled:false }];
+    state.chunkStack = [];
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.scrollTopNext = true;
+    state.prevWorld = null;
+    state.prevDay = null;
+    state.prevCursor = null;
+    return true;
   }
   function cycleWorld(delta){
     const list = primaryWorlds();
@@ -685,6 +731,8 @@
   function render(){
     const world = getWorldById(state.worldId);
     const day = getDay(world, state.dayNo);
+    const futureAvailable = hasWorld(FUTURE_WORLD_ID);
+    const inFuture = state.worldId === FUTURE_WORLD_ID;
     applyRotation();
 
     setHUD(world, day);
@@ -693,12 +741,17 @@
 
     if(state.scrollMode){
       setQuestion(`SCROLL MODE.`);
-      setChoices([
+      const scrollChoices = [
         { label:"Exit Scroll", onClick: () => act(() => exitScrollMode(), { echo:false, vector:"FLOW" }) },
         { label:"Next Day/World", onClick: () => act(() => gotoDay(+1), { echo:false, vector:"NEXT" }) },
         { label:"Prev Day/World", onClick: () => act(() => gotoDay(-1), { echo:false, vector:"LOOP" }) },
         { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
-      ]);
+      ];
+      if(futureAvailable){
+        if(inFuture) scrollChoices.push({ label:"Return 2026", onClick: () => act(() => returnFromFuture(), { echo:false, vector:"JUMP" }) });
+        else scrollChoices.push({ label:"Time Jump 2027", onClick: () => act(() => timeJumpToFuture(), { echo:false, vector:"JUMP" }) });
+      }
+      setChoices(scrollChoices);
       return;
     }
 
@@ -749,27 +802,37 @@
 
     if(atEnd){
       setQuestion(`DAY ${day.day} END. CHOOSE VECTOR.`);
-      setChoices([
+      const endChoices = [
         { label:"Next day/world", onClick: () => act(() => gotoDay(+1), { vector:"NEXT" }) },
         { label:"Prev day/world", onClick: () => act(() => gotoDay(-1), { vector:"LOOP" }) },
         { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }, { vector:"BACK" }) },
         { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
         { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle:false }), { vector:"WORMHOLE" }) },
         { label:"Hackle the return", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); appendChunk({hackle:true, pulse:true}); }, { append:true, vector:"HACKLE" }) },
-        { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) },
-      ]);
+      ];
+      if(futureAvailable){
+        if(inFuture) endChoices.push({ label:"Return 2026", onClick: () => act(() => returnFromFuture(), { vector:"JUMP" }) });
+        else endChoices.push({ label:"Time Jump 2027", onClick: () => act(() => timeJumpToFuture(), { vector:"JUMP" }) });
+      }
+      endChoices.push({ label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) });
+      setChoices(endChoices);
       return;
     }
 
     setQuestion(`CHOOSE A VECTOR. HACKLE = MARKOV.`);
-    setChoices([
+    const baseChoices = [
       { label:"Continue", onClick: () => act(() => appendChunk({hackle:false, pulse:true}), { append:true, vector:"FLOW" }) },
       { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }, { vector:"BACK" }) },
       { label:"Hackle", onClick: () => act(() => appendChunk({hackle:true, pulse:true}), { append:true, vector:"HACKLE" }) },
       { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
       { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle: Math.random() < 0.35 }), { vector:"WORMHOLE" }) },
-      { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) },
-    ]);
+    ];
+    if(futureAvailable){
+      if(inFuture) baseChoices.push({ label:"Return 2026", onClick: () => act(() => returnFromFuture(), { vector:"JUMP" }) });
+      else baseChoices.push({ label:"Time Jump 2027", onClick: () => act(() => timeJumpToFuture(), { vector:"JUMP" }) });
+    }
+    baseChoices.push({ label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) });
+    setChoices(baseChoices);
   }
 
   async function boot(){

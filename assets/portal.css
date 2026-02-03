@@ -1,20 +1,16 @@
 @font-face{
   font-family:"BBSMono";
-  src:local("Monaco"),local("Lucida Console"),local("PT Mono"),local("Courier New"),local("Courier");
+  src:url("fonts/PTMono.ttc") format("truetype-collection");
   font-weight:400;
   font-style:normal;
+  font-display:swap;
 }
 @font-face{
   font-family:"BBSMono";
-  src:local("Monaco"),local("Lucida Console"),local("PT Mono"),local("Courier New"),local("Courier");
+  src:url("fonts/PTMono.ttc") format("truetype-collection");
   font-weight:700;
   font-style:normal;
-}
-@font-face{
-  font-family:"BBSMono";
-  src:local("Monaco"),local("Lucida Console"),local("PT Mono"),local("Courier New"),local("Courier");
-  font-weight:400;
-  font-style:italic;
+  font-display:swap;
 }
 
 :root{
@@ -27,7 +23,7 @@
   --btnfg:var(--black);
   --shadow:none;
   --border:var(--fg);
-  --mono:"BBSMono","Monaco","Lucida Console","PT Mono","Courier New",monospace;
+  --mono:"BBSMono","PT Mono","Monaco","Lucida Console","Courier New",monospace;
 }
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--mono);overflow:hidden;transition:background-color 160ms linear,color 160ms linear;text-shadow:var(--shadow);letter-spacing:0.02em;-webkit-font-smoothing:none;-moz-osx-font-smoothing:grayscale;font-variant-ligatures:none}

@@ -1,0 +1,11 @@
+{
+  "name": "ki-dipfies",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:drama": "node scripts/build-drama.mjs"
+  },
+  "dependencies": {
+    "mammoth": "^1.8.0"
+  }
+}

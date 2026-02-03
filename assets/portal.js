@@ -3,8 +3,16 @@
   const COLORS = { black:"#050505", green:"#00a651", white:"#f3f6f2" };
   const ROT = [
     { bg:"black", fg:"green", btn:"white", ink:"light" },
+    { bg:"black", fg:"white", btn:"green", ink:"light" },
     { bg:"green", fg:"black", btn:"white", ink:"dark" },
+    { bg:"green", fg:"white", btn:"black", ink:"light" },
     { bg:"white", fg:"black", btn:"green", ink:"dark" },
+    { bg:"white", fg:"green", btn:"black", ink:"light" },
+  ];
+
+  const KEYWORDS = [
+    "summit","manifesto","protocol","dipfies","mostdipf","gipfeltreffen",
+    "paletten","party","algorithm","wormhole","archive","synthetic",
   ];
 
   const state = {
@@ -28,7 +36,11 @@
     ghostLine:"",
     scrollMode:false,
     scrollSnapshot:null,
+    keywordIndex:null,
+    vector:"BOOT",
   };
+
+  const PRIMARY_WORLD_IDS = ["core","mirror","kopi"];
 
   const TOK_RE = /[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:['’][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)?|[.,!?;:()]/g;
   const safeText = (x) => (x ?? "").toString();
@@ -40,10 +52,29 @@
   };
   const normalizeWS = (s) => safeText(s).replace(/\s+/g, " ").trim();
   const formatInline = (s) => {
-    const esc = escapeHTML(s);
-    const italA = esc.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
-    return italA.replace(/(^|[^\\w])_([^_\\n]+)_(?=[^\\w]|$)/g, "$1<em>$2</em>");
+    let esc = escapeHTML(s);
+    esc = esc.replace(/\+\+([\s\S]+?)\+\+/g, "<u>$1</u>");
+    esc = esc.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+    esc = esc.replace(/(^|[^\\w])_([\\s\\S]+?)_(?=[^\\w]|$)/g, "$1<em>$2</em>");
+    return esc;
   };
+
+  function markKeywords(s){
+    let out = s;
+    for(const kw of KEYWORDS){
+      const re = new RegExp(`\\\\b(${kw})\\\\b`, "gi");
+      out = out.replace(re, "§§$1§§");
+    }
+    return out;
+  }
+
+  function renderText(raw){
+    const marked = markKeywords(raw);
+    let html = formatInline(marked);
+    html = html.replace(/\t/g, "&nbsp;&nbsp;&nbsp;&nbsp;");
+    html = html.replace(/\n/g, "<br>");
+    return html.replace(/§§([^§]+)§§/g, `<span class="kw" data-kw="$1">$1</span>`);
+  }
 
   function tokenize(s){ return (safeText(s).match(TOK_RE) || []); }
   function detok(tokens){
@@ -91,7 +122,17 @@
     const s = safeText(t).trim();
     if(!s) return { kind:"empty", spk:"", txt:"" };
     const m = s.match(/^([^:]{2,60}):\s*(.*)$/);
-    if(m) return { kind:"speaker", spk:m[1].trim(), txt:m[2] };
+    if(m){
+      const rawName = m[1].trim();
+      if(/[A-Za-zÀ-ÖØ-öø-ÿ]/.test(rawName)){
+        let txt = m[2];
+        if(rawName.startsWith("**") && txt.startsWith("**")) txt = txt.replace(/^\\*\\*\\s*/,"");
+        if(rawName.startsWith("++") && txt.startsWith("++")) txt = txt.replace(/^\\+\\+\\s*/,"");
+        if(rawName.startsWith("_") && txt.startsWith("_")) txt = txt.replace(/^_\\s*/,"");
+        const clean = rawName.replace(/\+\+|\*\*|_/g,"").replace(/\*/g,"").trim();
+        return { kind:"speaker", spk: clean || rawName, txt };
+      }
+    }
     if(s.startsWith("(") && s.endsWith(")")) return { kind:"stage", spk:"", txt:s };
     return { kind:"text", spk:"", txt:s };
   }
@@ -111,6 +152,20 @@
   function playableWorlds(){
     const worlds = state.worlds?.worlds || [];
     return worlds.filter(w => (w.days || []).length);
+  }
+  function primaryWorlds(){
+    const playable = playableWorlds();
+    const pick = playable.filter(w => PRIMARY_WORLD_IDS.includes(w.id));
+    return pick.length ? pick : playable.filter(w => w.id !== "theory-tragedy");
+  }
+  function cycleWorld(delta){
+    const list = primaryWorlds();
+    if(!list.length) return null;
+    const idx = Math.max(0, list.findIndex(w => w.id === state.worldId));
+    const next = list[(idx + delta + list.length) % list.length];
+    state.worldId = next.id;
+    localStorage.setItem("ki_world", state.worldId || "");
+    return next;
   }
   function getWorldById(id){
     const worlds = state.worlds?.worlds || [];
@@ -158,14 +213,13 @@
     const r = ROT[state.clicks % ROT.length];
     const bg = COLORS[r.bg], fg = COLORS[r.fg], btnbg = COLORS[r.btn];
     const btnfg = (r.btn === "black") ? COLORS.white : COLORS.black;
-    const shadow = (r.fg === "black") ? "0 0 10px rgba(5,5,5,.35)" : "0 0 12px rgba(0,166,81,.35)";
+    const shadow = (r.fg === "black") ? "none" : `0 0 8px ${fg}`;
     document.documentElement.style.setProperty("--bg", bg);
     document.documentElement.style.setProperty("--fg", fg);
     document.documentElement.style.setProperty("--btnbg", btnbg);
     document.documentElement.style.setProperty("--btnfg", btnfg);
     document.documentElement.style.setProperty("--shadow", shadow);
-    const border = (r.bg === "white") ? "rgba(5,5,5,.20)" : "rgba(243,246,242,.18)";
-    document.documentElement.style.setProperty("--border", border);
+    document.documentElement.style.setProperty("--border", fg);
     document.body.dataset.ink = r.ink;
   }
   function click(){
@@ -198,31 +252,40 @@
   function setHUD(world, day){
     const d = day ? `DAY ${day.day}` : "DAY ?";
     const drift = `DRIFT ${Math.round(state.drift*100)}%`;
-    $("#state").textContent = `${d} // ${drift}`;
+    const vec = `VECTOR ${state.vector}`;
+    $("#state").textContent = `${d} // ${drift} // ${vec}`;
   }
 
   function renderBuffer(){
     const wrap = $("#buffer");
     const html = [];
     const items = state.scrollMode ? state.buffer : state.buffer.slice(-260);
+    const typed = !state.scrollMode;
+    let idx = 0;
     for(const item of items){
       const c = classifyLine(item.text);
       if(c.kind === "empty") continue;
       const cls = ["line"];
       if(c.kind === "stage") cls.push("stage");
       if(item.hackled) cls.push("hackled");
+      if(typed) cls.push("typed");
+      const delay = typed ? ` style="animation-delay:${Math.min(idx,16) * 18}ms"` : "";
       if(c.kind === "speaker"){
-        html.push(`<p class="${cls.join(" ")}"><span class="spk" data-spk="${escapeHTML(c.spk)}">${escapeHTML(c.spk)}:</span> ${formatInline(c.txt)}</p>`);
+        html.push(`<p class="${cls.join(" ")}"${delay}><span class="spk" data-spk="${escapeHTML(c.spk)}">${escapeHTML(c.spk)}:</span> ${renderText(c.txt)}</p>`);
       } else {
-        html.push(`<p class="${cls.join(" ")}">${formatInline(c.txt)}</p>`);
+        html.push(`<p class="${cls.join(" ")}"${delay}>${renderText(c.txt)}</p>`);
       }
+      idx++;
     }
     wrap.innerHTML = html.join("\n");
-    if(state.scrollTopNext){
+    if(state.scrollMode){
+      if(state.scrollTopNext){
+        wrap.scrollTop = 0;
+        state.scrollTopNext = false;
+      }
+    } else {
       wrap.scrollTop = 0;
       state.scrollTopNext = false;
-    } else {
-      wrap.scrollTop = wrap.scrollHeight;
     }
   }
 
@@ -291,6 +354,49 @@
     return { map, names };
   }
 
+  function buildKeywordIndex(){
+    const worlds = state.worlds?.worlds || [];
+    const map = new Map();
+    for(const kw of KEYWORDS){
+      map.set(kw.toLowerCase(), []);
+    }
+    for(const w of worlds){
+      for(const d of (w.days || [])){
+        const blocks = d.blocks || [];
+        for(let i=0;i<blocks.length;i++){
+          const raw = safeText(blocks[i] || "");
+          if(!raw) continue;
+          const low = raw.toLowerCase();
+          for(const kw of KEYWORDS){
+            const key = kw.toLowerCase();
+            if(low.includes(key)){
+              map.get(key).push({ worldId: w.id, dayNo: d.day, idx: i, line: raw });
+            }
+          }
+        }
+      }
+    }
+    return { map, words: KEYWORDS.slice() };
+  }
+
+  function jumpToKeyword(word){
+    const key = safeText(word).toLowerCase();
+    const hits = state.keywordIndex?.map.get(key);
+    if(!hits || !hits.length) return;
+    const hit = hits[Math.floor(Math.random()*hits.length)];
+    state.worldId = hit.worldId;
+    state.dayNo = hit.dayNo;
+    state.cursor = Math.max(0, hit.idx + 1);
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.buffer = [
+      { text:`(${word} gate opens)`, hackled:false },
+      { text: hit.line, hackled:false },
+    ];
+    state.chunkStack.push({ cursorStart: state.cursor, cursorEnd: state.cursor, lines: state.buffer.slice(), hackle:false });
+    state.scrollTopNext = true;
+  }
+
   function randomSpeakers(count=6){
     const names = state.speakerIndex?.names || [];
     if(!names.length) return [];
@@ -336,9 +442,26 @@
     }
   }
 
-  function act(fn, { append=false, echo=true } = {}){
+  function coldBootMaybe(){
+    if(state.scrollMode) return;
+    if(Math.random() < 0.05){
+      const boot = [
+        { text:"[COLD BOOT]", hackled:false },
+        { text:"MEMORY VECTOR RESET", hackled:false },
+        { text:"LINKING WORLDLINES...", hackled:false },
+        { text:"READY.", hackled:false },
+      ];
+      state.buffer = boot;
+      state.vector = "BOOT";
+      state.chunkStack.push({ cursorStart: state.cursor, cursorEnd: state.cursor, lines: boot.slice(), hackle:false });
+      state.scrollTopNext = true;
+    }
+  }
+
+  function act(fn, { append=false, echo=true, vector="FLOW" } = {}){
     click();
     if(typeof fn === "function") fn();
+    state.vector = vector;
     if(echo && !append) markovEcho();
     ghostMaybe();
     render();
@@ -357,28 +480,24 @@
     const p = 0.12 + state.drift * 0.28;
     return Math.random() < p;
   }
-  function appendWormhole({ hackle=false } = {}){
+  function pickWormholeLines({ count=4, hackle=false } = {}){
     const worlds = playableWorlds();
-    if(!worlds.length) return false;
-    const cur = state.worldId;
+    if(!worlds.length) return [];
     let w = worlds[Math.floor(Math.random()*worlds.length)];
-    if(w.id === cur && worlds.length > 1){
-      w = worlds[(worlds.indexOf(w)+1) % worlds.length];
+    if(w.id === state.worldId && worlds.length > 1){
+      w = worlds[(worlds.indexOf(w) + 1) % worlds.length];
     }
     const days = w.days || [];
-    if(!days.length) return false;
+    if(!days.length) return [];
     const day = days[Math.floor(Math.random()*days.length)];
     const blocks = day.blocks || [];
-    if(!blocks.length) return false;
-
-    const span = Math.min(blocks.length, Math.floor(Math.random() * 8) + 6);
+    if(!blocks.length) return [];
+    const span = Math.min(blocks.length, Math.max(2, count));
     const start = Math.floor(Math.random() * Math.max(1, blocks.length - span));
     const end = Math.min(blocks.length, start + span);
     const seed = blocks[start] || "";
     const hasMarkov = !!state.markov;
-
-    const addedLines = [{ text:"(wormhole splice)", hackled:false }];
-
+    const lines = [];
     for(let i=start;i<end;i++){
       const raw = safeText(blocks[i] || "");
       if(!raw.trim()) continue;
@@ -387,16 +506,20 @@
         const c = classifyLine(raw);
         if(c.kind === "speaker"){
           const g = generate(state.markov, c.txt || seed, 28);
-          addedLines.push({ text: `${c.spk}: ${g || c.txt}`, hackled:true });
+          lines.push({ text: `${c.spk}: ${g || c.txt}`, hackled:true });
         } else {
           const g = generate(state.markov, raw || seed, 28);
-          addedLines.push({ text: g || raw, hackled:true });
+          lines.push({ text: g || raw, hackled:true });
         }
       } else {
-        addedLines.push({ text: raw, hackled:false });
+        lines.push({ text: raw, hackled:false });
       }
     }
-
+    return lines;
+  }
+  function appendWormhole({ hackle=false } = {}){
+    const addedLines = pickWormholeLines({ count: Math.floor(Math.random() * 8) + 6, hackle });
+    if(!addedLines.length) return false;
     if(state.scrollMode){
       state.buffer = state.buffer.concat(addedLines);
     } else {
@@ -405,15 +528,29 @@
     }
     state.scrollTopNext = true;
     state.drift = clamp01(state.drift + (hackle ? 0.16 : 0.08));
+    coldBootMaybe();
     return true;
   }
 
   function gotoDay(delta){
-    const world = getWorldById(state.worldId);
-    const days = allDayNos(world);
+    let world = getWorldById(state.worldId);
+    let days = allDayNos(world);
     if(!days.length){ state.dayNo=1; state.cursor=0; state.buffer=[]; return; }
     const idx = Math.max(0, days.indexOf(state.dayNo));
-    state.dayNo = days[(idx + delta + days.length) % days.length];
+    const nextIdx = idx + delta;
+    const wrappedForward = nextIdx >= days.length;
+    const wrappedBack = nextIdx < 0;
+    if(delta > 0 && wrappedForward){
+      world = cycleWorld(+1) || world;
+      days = allDayNos(world);
+      state.dayNo = days[0] || 1;
+    } else if(delta < 0 && wrappedBack){
+      world = cycleWorld(-1) || world;
+      days = allDayNos(world);
+      state.dayNo = days[days.length - 1] || 1;
+    } else {
+      state.dayNo = days[(nextIdx + days.length) % days.length];
+    }
     state.cursor = 0;
     state.buffer = [{ text:`(entering Day ${state.dayNo})`, hackled:false }];
     state.chunkStack = [];
@@ -488,6 +625,11 @@
       addedLines.push({ text:"(silence)", hackled:false });
     }
 
+    if(driftMaybe()){
+      const splice = pickWormholeLines({ count: 2 + Math.floor(Math.random()*3) });
+      if(splice.length) addedLines = addedLines.concat(splice);
+    }
+
     if(state.scrollMode){
       state.buffer = state.buffer.concat(addedLines);
     } else {
@@ -501,7 +643,7 @@
     if(hackle) state.drift = clamp01(state.drift + 0.10);
     else state.drift = clamp01(state.drift * 0.985 + 0.01);
 
-    if(driftMaybe()) appendWormhole({ hackle: Math.random() < 0.45 });
+    coldBootMaybe();
   }
 
   function rewindChunk(){
@@ -529,10 +671,10 @@
     if(state.scrollMode){
       setQuestion(`SCROLL MODE.`);
       setChoices([
-        { label:"Exit Scroll", onClick: () => act(() => exitScrollMode(), { echo:false }) },
-        { label:"Next Day", onClick: () => act(() => gotoDay(+1), { echo:false }) },
-        { label:"Prev Day", onClick: () => act(() => gotoDay(-1), { echo:false }) },
-        { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false }) },
+        { label:"Exit Scroll", onClick: () => act(() => exitScrollMode(), { echo:false, vector:"FLOW" }) },
+        { label:"Next Day/World", onClick: () => act(() => gotoDay(+1), { echo:false, vector:"NEXT" }) },
+        { label:"Prev Day/World", onClick: () => act(() => gotoDay(-1), { echo:false, vector:"LOOP" }) },
+        { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
       ]);
       return;
     }
@@ -541,15 +683,15 @@
       setQuestion("ROLE GATE: SELECT CHARACTER.");
       const btns = state.roleOptions.map(name => ({
         label: shorten(name.toUpperCase()),
-        onClick: () => act(() => jumpToSpeaker(name), { echo:false }),
+        onClick: () => act(() => jumpToSpeaker(name), { echo:false, vector:"ROLE" }),
       }));
       btns.push({
         label: "MORE NAMES",
-        onClick: () => act(() => { state.roleOptions = randomSpeakers(6); }, { echo:false }),
+        onClick: () => act(() => { state.roleOptions = randomSpeakers(6); }, { echo:false, vector:"ROLE" }),
       });
       btns.push({
         label: "EXIT",
-        onClick: () => act(() => { state.roleMenu = false; }, { echo:false }),
+        onClick: () => act(() => { state.roleMenu = false; }, { echo:false, vector:"FLOW" }),
       });
       setChoices(btns);
       return;
@@ -571,8 +713,8 @@
       setQuestion("DATA LINK LOST.");
       setChoices([
         { label:"Reload", onClick: () => { click(); location.reload(); } },
-        { label:"Wormhole", onClick: () => act(() => appendWormhole({ hackle:false })) },
-        { label:"Continue", onClick: () => act(() => appendChunk({hackle:false, pulse:true}), { append:true }) },
+        { label:"Wormhole", onClick: () => act(() => appendWormhole({ hackle:false }), { vector:"WORMHOLE" }) },
+        { label:"Continue", onClick: () => act(() => appendChunk({hackle:false, pulse:true}), { append:true, vector:"FLOW" }) },
       ]);
       return;
     }
@@ -585,25 +727,25 @@
     if(atEnd){
       setQuestion(`DAY ${day.day} END. CHOOSE VECTOR.`);
       setChoices([
-        { label:"Next day", onClick: () => act(() => gotoDay(+1)) },
-        { label:"Loop back", onClick: () => act(() => gotoDay(-1)) },
-        { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }) },
-        { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false }) },
-        { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle:false })) },
-        { label:"Hackle the return", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); appendChunk({hackle:true, pulse:true}); }, { append:true }) },
-        { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false }) },
+        { label:"Next day/world", onClick: () => act(() => gotoDay(+1), { vector:"NEXT" }) },
+        { label:"Prev day/world", onClick: () => act(() => gotoDay(-1), { vector:"LOOP" }) },
+        { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }, { vector:"BACK" }) },
+        { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
+        { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle:false }), { vector:"WORMHOLE" }) },
+        { label:"Hackle the return", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); appendChunk({hackle:true, pulse:true}); }, { append:true, vector:"HACKLE" }) },
+        { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) },
       ]);
       return;
     }
 
     setQuestion(`CHOOSE A VECTOR. HACKLE = MARKOV.`);
     setChoices([
-      { label:"Continue", onClick: () => act(() => appendChunk({hackle:false, pulse:true}), { append:true }) },
-      { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }) },
-      { label:"Hackle", onClick: () => act(() => appendChunk({hackle:true, pulse:true}), { append:true }) },
-      { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false }) },
-      { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle: Math.random() < 0.35 })) },
-      { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false }) },
+      { label:"Continue", onClick: () => act(() => appendChunk({hackle:false, pulse:true}), { append:true, vector:"FLOW" }) },
+      { label:"Back a page", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }, { vector:"BACK" }) },
+      { label:"Hackle", onClick: () => act(() => appendChunk({hackle:true, pulse:true}), { append:true, vector:"HACKLE" }) },
+      { label:"Role Gate", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
+      { label:"Drift / Wormhole", onClick: () => act(() => appendWormhole({ hackle: Math.random() < 0.35 }), { vector:"WORMHOLE" }) },
+      { label:"Scroll Day", onClick: () => act(() => enterScrollMode(), { echo:false, vector:"SCROLL" }) },
     ]);
   }
 
@@ -612,14 +754,27 @@
     const buf = $("#buffer");
     if(buf){
       buf.addEventListener("click", (e) => {
-        const el = e.target.closest(".spk");
-        if(!el) return;
-        const name = el.getAttribute("data-spk") || el.textContent.replace(/:$/,"");
-        if(!name) return;
-        click();
-        jumpToSpeaker(name);
-        render();
-        persist();
+        const spk = e.target.closest(".spk");
+        if(spk){
+          const name = spk.getAttribute("data-spk") || spk.textContent.replace(/:$/,"");
+          if(!name) return;
+          click();
+          state.vector = "ROLE";
+          jumpToSpeaker(name);
+          render();
+          persist();
+          return;
+        }
+        const kw = e.target.closest(".kw");
+        if(kw){
+          const word = kw.getAttribute("data-kw") || kw.textContent;
+          if(!word) return;
+          click();
+          state.vector = "GATE";
+          jumpToKeyword(word);
+          render();
+          persist();
+        }
       });
     }
     await bootBuildStamp();
@@ -656,11 +811,13 @@
       .concat(ghost);
     state.markov = buildMarkov(mix.length ? mix : dramaLines);
     state.speakerIndex = buildSpeakerIndex();
+    state.keywordIndex = buildKeywordIndex();
 
     if(!state.buffer.length){
       state.buffer = [{ text:`(entering Day ${getDay(w,state.dayNo)?.day || state.dayNo})`, hackled:false }];
       appendChunk({hackle:false, pulse:true});
     }
+    state.vector = "FLOW";
 
     render();
     persist();

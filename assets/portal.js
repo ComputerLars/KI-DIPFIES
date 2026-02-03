@@ -362,10 +362,16 @@
       const m = raw.match(timeRe);
       if(m) return m[0];
     }
+    // Fallback: if no time encountered yet, grab the first time in the day.
+    for(let i=0;i<blocks.length;i++){
+      const raw = plainText(blocks[i] || "");
+      const m = raw.match(timeRe);
+      if(m) return m[0];
+    }
     return "";
   }
   function setHUD(world, day){
-    const d = day ? `DAY ${day.day}` : "DAY ?";
+    const d = day ? `DAY ${day.day}` : (state.dayNo ? `DAY ${state.dayNo}` : "DAY ?");
     const t = inferTime(world, day);
     const time = t ? `TIME ${t}` : "TIME --";
     const drift = `DRIFT ${Math.round(state.drift*100)}%`;
@@ -812,8 +818,8 @@
       setQuestion(`SCROLL MODE.`);
       const scrollChoices = [
         { label:"Exit Scroll", onClick: () => act(() => exitScrollMode(), { echo:false, vector:"FLOW" }) },
-        { label:"Next Day/World", onClick: () => act(() => gotoDay(+1), { echo:false, vector:"NEXT" }) },
-        { label:"Prev Day/World", onClick: () => act(() => gotoDay(-1), { echo:false, vector:"LOOP" }) },
+        { label:"Next World", onClick: () => act(() => gotoDay(+1), { echo:false, vector:"NEXT" }) },
+        { label:"Prev World", onClick: () => act(() => gotoDay(-1), { echo:false, vector:"LOOP" }) },
         { label:"Role", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
       ];
       if(futureAvailable){

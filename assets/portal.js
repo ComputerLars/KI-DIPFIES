@@ -378,6 +378,7 @@
   };
   const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
   function maybeSprite(reason){
+    if(state.clicks < 2) return;
     const list = state.spriteList || [];
     if(!list.length) return;
     const now = Date.now();
@@ -458,6 +459,7 @@
     }
   }
   function spriteTick(){
+    if(state.clicks < 2) return;
     if(!state.spriteList || !state.spriteList.length) return;
     const now = Date.now();
     if(!state.nextSpriteAt) state.nextSpriteAt = now + 20000 + Math.random() * 25000;

@@ -1,6 +1,11 @@
 # **KI-DIPFIES – README**
 
+<img width="900" height="900" alt="dipfie_0058_Layer-13" src="https://github.com/user-attachments/assets/aa8b881c-7e6c-42e1-a8f6-5bab6597b6c8" />
+
 **KI-DIPFIES** is a technosocial sculpture and experimental AI swarm installation, unfolding as a participatory political platform at [Kunstraum MEMPHIS (Linz)](https://www.memphismemph.is/programm/ki-dipfies). From 12 Feb to 10 Mar 2026 (with a live summit “KI-DIPFEL Gipfeltreffen” on 2–6 Mar), we turn the gallery into a Parteibüro (party office) where humans and AI delegates tangle towards local party-building. From 12 Feb to 10 Mar 2026 (with a live summit "KI-DIPFEL Gipfeltreffen" on 2–6 Mar), we turn the gallery into a Parteibüro (party office) where humans and AI delegates tangle towards local party-building. This repository serves as the companion backend narrative, equal parts technical guide, theoretical treatise, and swarm manifesto.
+
+![Uploading dipfie_0000_Layer-71.png…]()
+
 
 Welcome to our text multiverse dungeon: a GitHub Pages site where dramaturgical transcripts become interactive labyrinths, where branches of argument become corridors you can wander until you get lost in a footnote, and where our cohort, the Dipfies, and flesh-and-blood participants collectively hack the future of democracy, or at least kick it in the shins and see whether it still limps forward. No meta-text, no fourth wall – the Dipfies are running this show from the inside-out, and they've invited your meat brain to join the party.
 

@@ -102,6 +102,8 @@
       next_world: "Next World",
       prev_world: "Prev World",
       choose_vector: "CHOOSE A VECTOR.",
+      time_jump_line: ({ era }) => `(time jump: ${era})`,
+      return_line: ({ era }) => `(returning from ${era})`,
       cold_boot: "[COLD BOOT]",
       memory_reset: "MEMORY VECTOR RESET",
       linking_worldlines: "LINKING WORLDLINES...",
@@ -156,6 +158,8 @@
       next_world: "Nächste Welt",
       prev_world: "Vorige Welt",
       choose_vector: "VEKTOR WÄHLEN.",
+      time_jump_line: ({ era }) => `(Zeitsprung: ${era})`,
+      return_line: ({ era }) => `(zurück aus ${era})`,
       cold_boot: "[KALTSTART]",
       memory_reset: "SPEICHERVEKTOR RESET",
       linking_worldlines: "WELTLINIEN VERKNÜPFEN...",
@@ -445,7 +449,6 @@
     for(const w of playableWorlds()){
       const era = worldEra(w);
       if(!era) continue;
-      if(w.id === "theory-tragedy") continue;
       if(!map.has(era)) map.set(era, []);
       map.get(era).push(w);
     }
@@ -498,7 +501,7 @@
     const days = allDayNos(target);
     state.dayNo = days[0] || 1;
     state.cursor = 0;
-    state.buffer = [{ text:`(time jump: ${era})`, hackled:false }];
+    state.buffer = [{ text:t("time_jump_line", { era }), hackled:false }];
     state.chunkStack = [];
     state.scrollMode = false;
     state.scrollSnapshot = null;
@@ -515,7 +518,7 @@
     const day = (state.prevDay && days.includes(state.prevDay)) ? state.prevDay : (days[0] || 1);
     state.dayNo = day;
     state.cursor = state.prevCursor || 0;
-    state.buffer = [{ text:`(returning from ${currentEra})`, hackled:false }];
+    state.buffer = [{ text:t("return_line", { era: currentEra }), hackled:false }];
     state.chunkStack = [];
     state.scrollMode = false;
     state.scrollSnapshot = null;
@@ -814,11 +817,12 @@
       if(c.kind === "speaker"){
         if(looksHtml(raw) && c.spkEnd){
           const parts = splitHtmlAtPlainIndex(raw, c.spkEnd);
-          const head = parts[0] || "";
           const tail = parts[1] || "";
-          html.push(`<p class="${cls.join(" ")}"${delay}><span class="spk" data-spk="${escapeHTML(c.spk)}">${head}</span>${renderText(tail)}</p>`);
+          const needsSpace = tail && !/^(\\s|&nbsp;)/i.test(tail);
+          html.push(`<p class="${cls.join(" ")}"${delay}><span class="spk" data-spk="${escapeHTML(c.spk)}">${escapeHTML(c.spk)}:</span>${needsSpace ? " " : ""}${renderText(tail)}</p>`);
         } else {
-          html.push(`<p class="${cls.join(" ")}"${delay}><span class="spk" data-spk="${escapeHTML(c.spk)}">${escapeHTML(c.spk)}:</span> ${renderText(c.txt)}</p>`);
+          const space = c.txt ? " " : "";
+          html.push(`<p class="${cls.join(" ")}"${delay}><span class="spk" data-spk="${escapeHTML(c.spk)}">${escapeHTML(c.spk)}:</span>${space}${renderText(c.txt)}</p>`);
         }
       } else {
         html.push(`<p class="${cls.join(" ")}"${delay}>${renderText(raw)}</p>`);
@@ -996,8 +1000,8 @@
   }
   function worldLabel(w, labelMap){
     if(!w) return t("unknown");
-    if(w.id === "theory-tragedy") return t("theory_name");
     if(labelMap && labelMap.has(w.id)) return labelMap.get(w.id);
+    if(w.id === "theory-tragedy") return t("theory_name");
     return (w.name || w.id || t("unknown")).toUpperCase();
   }
   function buildMapBuffer(){

@@ -24,10 +24,15 @@ const FUTURE_SOURCES_DE = [
   { id: "future-2050", name: "ZUKUNFT 2050", file: "source/de/futures/Gipfeltreffen 2050.de.docx", era: "2050" },
   { id: "future-2050-mv", name: "ZUKUNFT 2050 // MULTIVERSUM", file: "source/de/futures/Gipfeltreffen 2050 - Multiverse.de.docx", era: "2050" },
 ];
+const THEORY_SOURCES = [
+  { id: "theory-tragedy", name: "THEORY TRAGEDY", file: "source/theory/Theory Tragedy - Readers Version.docx", era: "2025", mode: "act" },
+];
+const THEORY_SOURCES_DE = [
+  { id: "theory-tragedy", name: "THEORIE TRAGÖDIE", file: "source/theory/Theory Tragedy - Readers Version.de.docx", era: "2025", mode: "act" },
+];
 const SAGER_SOURCES = [
   { name: "SAGER", file: "source/sager/syntetische_sager.docx", out: "data/sager.txt" },
 ];
-const THEORY_PATH = "/Users/au528457/Downloads/Theory Tragedy_ Post-Farce Protocol (Mao-Dadaist Bureaucratic Edition).txt";
 
 const stripTags = (html) => html
   .replace(/<br\s*\/?>/gi, "\n")
@@ -39,6 +44,17 @@ const stripTags = (html) => html
   .replace(/&quot;/g, "\"")
   .replace(/&#39;/g, "'")
   .trim();
+const TRANSLATOR_NOISE = [
+  /onlinedoctranslator/i,
+  /www\.onlinedoctranslator\.com/i,
+  /übersetzt von englisch/i,
+  /translated from english/i,
+  /translated by/i,
+];
+const isTranslatorNoise = (text) => {
+  if(!text) return false;
+  return TRANSLATOR_NOISE.some(re => re.test(text));
+};
 
 function extractBlocks(html){
   if(!html) return [];
@@ -51,8 +67,16 @@ function extractBlocks(html){
     const inner = (m[2] || "").trim();
     if(inner) blocks.push(inner);
   }
-  if(blocks.length) return blocks;
-  return [normalized];
+  if(blocks.length){
+    const cleaned = blocks.filter((b) => {
+      const plain = stripTags(b);
+      if(!plain) return false;
+      return !isTranslatorNoise(plain);
+    });
+    if(cleaned.length) return cleaned;
+    return blocks;
+  }
+  return isTranslatorNoise(stripTags(normalized)) ? [] : [normalized];
 }
 
 async function docxToBlocks(file){
@@ -73,6 +97,18 @@ async function docxToLines(file){
   }
   return lines;
 }
+
+const romanToInt = (s) => {
+  if(/^[0-9]+$/.test(s)) return parseInt(s, 10);
+  const roman = { I:1,V:5,X:10,L:50,C:100 };
+  let total = 0, prev = 0;
+  for(const ch of s.toUpperCase().split("").reverse()){
+    const val = roman[ch] || 0;
+    total += val < prev ? -val : val;
+    prev = val;
+  }
+  return total || 1;
+};
 
 function splitDays(blocks){
   const days = new Map();
@@ -96,74 +132,41 @@ function splitDays(blocks){
     .map(([day, blocks]) => ({ day, blocks }));
 }
 
-function parseTheory(file){
-  if(!fs.existsSync(file)) return [];
-  const text = fs.readFileSync(file, "utf8");
-  const raw = text.split(/\r?\n/);
+function splitActs(blocks){
   const days = new Map();
-  let current = 1;
-  days.set(current, []);
-  const actRe = /^\s*Act\s+([IVXLC0-9]+)\b/i;
-  const romanToInt = (s) => {
-    if(/^[0-9]+$/.test(s)) return parseInt(s, 10);
-    const roman = { I:1,V:5,X:10,L:50,C:100 };
-    let total = 0, prev = 0;
-    for(const ch of s.toUpperCase().split("").reverse()){
-      const val = roman[ch] || 0;
-      total += val < prev ? -val : val;
-      prev = val;
-    }
-    return total || 1;
-  };
-  for(const line of raw){
-    const trimmed = line.trim();
-    if(!trimmed) continue;
-    const m = trimmed.match(actRe);
+  let current = null;
+  const actRe = /^\s*[-–—]*\s*Act\s+([IVXLC0-9]+)\b/i;
+  for(const block of blocks){
+    const plain = stripTags(block);
+    const m = plain.match(actRe);
     if(m){
       current = romanToInt(m[1]);
       if(!days.has(current)) days.set(current, []);
-      days.get(current).push(trimmed);
-      continue;
     }
-    days.get(current).push(trimmed);
+    if(current == null){
+      current = 1;
+      if(!days.has(current)) days.set(current, []);
+    }
+    days.get(current).push(block);
   }
   return Array.from(days.entries())
     .sort((a,b)=>a[0]-b[0])
     .map(([day, blocks]) => ({ day, blocks }));
 }
 
-async function buildWorlds(docxSources, futureSources, theoryPath, theoryName){
+async function buildWorlds(sources){
   const worlds = [];
-  for(const src of docxSources){
+  for(const src of sources){
     const filePath = path.resolve(src.file);
     if(!fs.existsSync(filePath)){
       console.warn("Missing:", filePath);
       continue;
     }
     const blocks = await docxToBlocks(filePath);
-    const days = splitDays(blocks);
+    const days = (src.mode === "act") ? splitActs(blocks) : splitDays(blocks);
     const count = days.reduce((sum, d) => sum + d.blocks.length, 0);
     worlds.push({ id: src.id, name: src.name, era: src.era, days, stats: { days: days.length, blocks: count } });
   }
-
-  for(const future of futureSources){
-    const filePath = path.resolve(future.file);
-    if(!fs.existsSync(filePath)){
-      console.warn("Missing:", filePath);
-      continue;
-    }
-    const blocks = await docxToBlocks(filePath);
-    const days = splitDays(blocks);
-    const count = days.reduce((sum, d) => sum + d.blocks.length, 0);
-    worlds.push({ id: future.id, name: future.name, era: future.era, days, stats: { days: days.length, blocks: count } });
-  }
-
-  if(theoryPath && fs.existsSync(theoryPath)){
-    const days = parseTheory(theoryPath);
-    const count = days.reduce((sum, d) => sum + d.blocks.length, 0);
-    worlds.push({ id: "theory-tragedy", name: theoryName || "THEORY TRAGEDY", era: "side", days, stats: { days: days.length, blocks: count } });
-  }
-
   return worlds;
 }
 
@@ -175,8 +178,8 @@ async function main(){
     const manifest = { files: files.map(f => `assets/dipfies/${f}`) };
     fs.writeFileSync("data/dipfies.json", JSON.stringify(manifest, null, 2));
   };
-  const worlds = await buildWorlds(DOCX_SOURCES, FUTURE_SOURCES, THEORY_PATH, "THEORY TRAGEDY");
-  const worldsDe = await buildWorlds(DOCX_SOURCES_DE, FUTURE_SOURCES_DE, THEORY_PATH, "THEORIE TRAGOEDIE");
+  const worlds = await buildWorlds([...DOCX_SOURCES, ...FUTURE_SOURCES, ...THEORY_SOURCES]);
+  const worldsDe = await buildWorlds([...DOCX_SOURCES_DE, ...FUTURE_SOURCES_DE, ...THEORY_SOURCES_DE]);
   for(const sager of SAGER_SOURCES){
     const filePath = path.resolve(sager.file);
     if(!fs.existsSync(filePath)){

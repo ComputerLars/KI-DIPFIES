@@ -32,6 +32,8 @@
     speakerIndex:null,
     ghostLines:[],
     ghostLine:"",
+    spriteList:[],
+    spriteCooldown:0,
     scrollMode:false,
     scrollSnapshot:null,
     timeMenu:false,
@@ -361,6 +363,47 @@
     const base = seed || markovSeed() || plainText(state.buffer[state.buffer.length-1]?.text || "");
     const g = generate(state.markov, base, 22);
     if(g) state.buffer.push({ text: g, hackled:true, echo:true });
+  }
+  const SPRITE_PROB = {
+    HACKLE: 0.38,
+    WORMHOLE: 0.24,
+    SHIFT: 0.32,
+    JUMP: 0.30,
+    BOOT: 0.50,
+  };
+  function maybeSprite(reason){
+    const list = state.spriteList || [];
+    if(!list.length) return;
+    const now = Date.now();
+    if(now < state.spriteCooldown) return;
+    const p = SPRITE_PROB[reason] ?? 0.12;
+    if(Math.random() > p) return;
+    spawnSprite();
+    state.spriteCooldown = now + 2400;
+  }
+  function spawnSprite(){
+    const list = state.spriteList || [];
+    if(!list.length) return;
+    const host = $("#sprites");
+    if(!host) return;
+    if(host.children.length > 2){
+      host.removeChild(host.children[0]);
+    }
+    const src = list[Math.floor(Math.random() * list.length)];
+    const img = new Image();
+    img.src = src;
+    img.alt = "";
+    img.className = "dipfie";
+    const size = 20 + Math.random() * 20;
+    img.style.height = `${size}vh`;
+    const left = 4 + Math.random() * 68;
+    const top = 10 + Math.random() * 60;
+    img.style.left = `${left}%`;
+    img.style.top = `${top}%`;
+    host.appendChild(img);
+    const life = 2600 + Math.random() * 2600;
+    setTimeout(() => img.classList.add("fadeout"), life);
+    setTimeout(() => img.remove(), life + 520);
   }
 
   function morph(){ document.body.classList.add("morph"); setTimeout(()=>document.body.classList.remove("morph"),160); }
@@ -775,6 +818,7 @@
     state.vector = "BOOT";
     state.chunkStack.push({ cursorStart: state.cursor, cursorEnd: state.cursor, lines: boot.slice(), hackle:false });
     state.scrollTopNext = true;
+    maybeSprite("BOOT");
   }
   function coldBootMaybe(reason){
     if(state.scrollMode) return;
@@ -805,6 +849,7 @@
     state.vector = vector;
     if(echo && !append && vector === "HACKLE") markovEcho();
     if(vector === "HACKLE") forceGhost();
+    maybeSprite(vector);
     ghostMaybe();
     render();
     persist();
@@ -956,7 +1001,9 @@
     }
     const blocks = day.blocks || [];
     if(state.cursor >= blocks.length){
-      state.buffer.push({ text:`(end of Day ${day.day})`, hackled:false }); return;
+      state.buffer.push({ text:`(end of Day ${day.day})`, hackled:false });
+      state.buffer.push({ text:">> SHIFT WORLD?", hackled:false });
+      return;
     }
 
     const step = 14;
@@ -1223,9 +1270,17 @@
     await bootBuildStamp();
     state.worlds = await fetchJSON("data/drama_worlds.json");
     state.corpus = await fetchJSON("data/corpus.json").catch(()=>({lines:[]}));
-    state.ghostLines = await fetch("data/mostdipf_all.txt", { cache:"no-store" })
+    const ghostBase = await fetch("data/mostdipf_all.txt", { cache:"no-store" })
       .then(r => r.ok ? r.text() : "")
       .then(t => t.split(/\r?\n/).map(s => s.trim()).filter(Boolean))
+      .catch(() => []);
+    const sagerLines = await fetch("data/sager.txt", { cache:"no-store" })
+      .then(r => r.ok ? r.text() : "")
+      .then(t => t.split(/\r?\n/).map(s => s.trim()).filter(Boolean))
+      .catch(() => []);
+    state.ghostLines = ghostBase.concat(sagerLines);
+    state.spriteList = await fetchJSON("data/dipfies.json")
+      .then(d => Array.isArray(d.files) ? d.files : [])
       .catch(() => []);
 
     const worlds = state.worlds?.worlds || [];

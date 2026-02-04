@@ -42,6 +42,8 @@
     prevCursor:null,
     coldBooted:false,
     coldBootDay5:false,
+    hasSaved:false,
+    firstVisit:false,
   };
 
   const PRIMARY_WORLD_IDS = ["core","mirror","kopi"];
@@ -229,6 +231,28 @@
     }
     return map;
   }
+  function randomizeStart(era){
+    const groups = eraGroups();
+    let list = (groups.get(era) || []).slice();
+    if(!list.length){
+      list = primaryWorlds();
+    }
+    if(!list.length) return false;
+    const world = list[Math.floor(Math.random() * list.length)];
+    const days = allDayNos(world);
+    if(!days.length) return false;
+    state.worldId = world.id;
+    state.dayNo = days[Math.floor(Math.random() * days.length)];
+    state.cursor = 0;
+    state.chunkStack = [];
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.roleMenu = false;
+    state.timeMenu = false;
+    state.scrollTopNext = true;
+    localStorage.setItem("ki_world", state.worldId || "");
+    return true;
+  }
   function erasForTimeMenu(){
     const groups = eraGroups();
     const eras = Array.from(groups.keys()).filter(e => e !== PRESENT_ERA);
@@ -366,6 +390,7 @@
   function restore(){
     try{
       const raw = localStorage.getItem("ki_portal_state"); if(!raw) return;
+      state.hasSaved = true;
       const o = JSON.parse(raw);
       if(typeof o.clicks==="number") state.clicks=o.clicks;
       if(typeof o.worldId==="string") state.worldId=o.worldId;
@@ -626,13 +651,20 @@
     if(reason === "enter"){
       if(state.coldBooted) return;
       state.coldBooted = true;
+      if(!state.firstVisit) return;
+      const ok = randomizeStart(PRESENT_ERA);
       doColdBoot();
+      if(!ok){
+        // fall back to current state if randomize fails
+      }
       return;
     }
     if(reason === "day5"){
       if(state.dayNo !== 5) return;
       if(state.coldBootDay5) return;
       state.coldBootDay5 = true;
+      const era = worldEra(getWorldById(state.worldId)) || PRESENT_ERA;
+      randomizeStart(era);
       doColdBoot();
     }
   }
@@ -1005,6 +1037,7 @@
     state.canonId = state.worlds?.canonical || (worlds[0]?.id || null);
 
     restore();
+    state.firstVisit = !state.hasSaved;
 
     if(!state.worldId){
       state.worldId = localStorage.getItem("ki_world") || state.canonId || (worlds[0]?.id || null);

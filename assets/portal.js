@@ -377,6 +377,15 @@
     KEYWORD: 0.42,
   };
   const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  function pickUnique(list, count){
+    if(count <= 0) return [];
+    const arr = list.slice();
+    for(let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr.slice(0, Math.min(count, arr.length));
+  }
   function maybeSprite(reason){
     if(state.clicks < 2) return;
     const list = state.spriteList || [];
@@ -407,7 +416,7 @@
     if(!list.length) return;
     const host = $("#sprites");
     if(!host) return;
-    const total = pickClusterCount(list.length);
+    let total = pickClusterCount(list.length);
     if(total > 24){
       while(host.firstChild) host.removeChild(host.firstChild);
     } else {
@@ -415,6 +424,15 @@
         host.removeChild(host.children[0]);
       }
     }
+    const used = new Set(
+      Array.from(host.querySelectorAll(".dipfie"))
+        .map(el => el.dataset?.src)
+        .filter(Boolean)
+    );
+    const pool = list.filter(src => !used.has(src));
+    total = Math.min(total, pool.length);
+    if(total <= 0) return;
+    const chosen = pickUnique(pool, total);
     const waves = [];
     if(total <= 4) waves.push(total);
     else if(total <= 12){
@@ -426,6 +444,7 @@
       waves.push(a, b, Math.max(0, total - a - b));
     }
     let delay = 0;
+    let idx = 0;
     for(const count of waves){
       if(!count) continue;
       const centerX = 12 + Math.random() * 70;
@@ -433,10 +452,14 @@
       const sizeBase = total > 20 ? 10 : 16;
       const sizeVar = total > 20 ? 12 : 24;
       setTimeout(() => {
-        for(let i=0;i<count;i++){
-          const src = list[Math.floor(Math.random() * list.length)];
+        const remaining = chosen.length - idx;
+        const take = Math.min(count, remaining);
+        if(take <= 0) return;
+        for(let i=0;i<take;i++){
+          const src = chosen[idx++];
           const img = new Image();
           img.src = src;
+          img.dataset.src = src;
           img.alt = "";
           img.className = "dipfie";
           const size = sizeBase + Math.random() * sizeVar;

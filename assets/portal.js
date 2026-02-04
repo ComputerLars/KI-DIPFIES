@@ -757,6 +757,12 @@
       if(line) state.ghostLine = line;
     }
   }
+  function forceGhost(){
+    const lines = state.ghostLines || [];
+    if(!lines.length) return;
+    const line = normalizeWS(lines[Math.floor(Math.random()*lines.length)]);
+    if(line) state.ghostLine = line;
+  }
 
   function doColdBoot(){
     const boot = [
@@ -798,6 +804,7 @@
     if(typeof fn === "function") fn();
     state.vector = vector;
     if(echo && !append && vector === "HACKLE") markovEcho();
+    if(vector === "HACKLE") forceGhost();
     ghostMaybe();
     render();
     persist();
@@ -814,6 +821,17 @@
     if(state.drift < 0.55) return false;
     const p = 0.12 + state.drift * 0.28;
     return Math.random() < p;
+  }
+  function hackleLine(raw, seed, maxTokens){
+    if(!state.markov) return { text: raw, hackled:false };
+    const rawPlain = plainText(raw);
+    const c = classifyLine(rawPlain);
+    if(c.kind === "speaker"){
+      const g = generate(state.markov, c.txt || seed, maxTokens);
+      return { text: `${c.spk}: ${g || c.txt}`, hackled:true };
+    }
+    const g = generate(state.markov, rawPlain || seed, maxTokens);
+    return { text: g || rawPlain, hackled:true };
   }
   function pickWormholeLines({ count=4, hackle=false } = {}){
     const worlds = playableWorlds();
@@ -833,23 +851,22 @@
     const seed = blocks[start] || "";
     const hasMarkov = !!state.markov;
     const lines = [];
+    let replaced = 0;
     for(let i=start;i<end;i++){
       const raw = safeText(blocks[i] || "");
       const rawPlain = plainText(raw);
       if(!rawPlain.trim()) continue;
       const replace = hackle && hasMarkov && (Math.random() < 0.32);
       if(replace){
-        const c = classifyLine(rawPlain);
-        if(c.kind === "speaker"){
-          const g = generate(state.markov, c.txt || seed, 28);
-          lines.push({ text: `${c.spk}: ${g || c.txt}`, hackled:true });
-        } else {
-          const g = generate(state.markov, rawPlain || seed, 28);
-          lines.push({ text: g || rawPlain, hackled:true });
-        }
+        lines.push(hackleLine(raw, seed, 28));
+        replaced++;
       } else {
         lines.push({ text: raw, hackled:false });
       }
+    }
+    if(hackle && hasMarkov && !replaced && lines.length){
+      const idx = Math.floor(Math.random() * lines.length);
+      lines[idx] = hackleLine(lines[idx].text, seed, 28);
     }
     return lines;
   }
@@ -895,6 +912,34 @@
     else state.drift = clamp01(state.drift + 0.08);
     coldBootMaybe("day5");
   }
+  function shiftWorld(delta=+1){
+    const current = getWorldById(state.worldId);
+    const era = worldEra(current) || PRESENT_ERA;
+    const groups = eraGroups();
+    const list = groups.get(era) || primaryWorlds();
+    if(!list.length) return false;
+    const idx = Math.max(0, list.findIndex(w => w.id === state.worldId));
+    const next = list[(idx + delta + list.length) % list.length];
+    state.worldId = next.id;
+    const days = allDayNos(next);
+    const day = (state.dayNo && days.includes(state.dayNo)) ? state.dayNo : (days[0] || 1);
+    state.dayNo = day;
+    state.cursor = 0;
+    state.buffer = [
+      { text:"(world shift)", hackled:false },
+      { text:`(entering Day ${day})`, hackled:false },
+    ];
+    state.chunkStack = [];
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.mapMenu = false;
+    state.mapSnapshot = null;
+    state.timeMenu = false;
+    state.roleMenu = false;
+    state.scrollTopNext = true;
+    localStorage.setItem("ki_world", state.worldId || "");
+    return true;
+  }
 
   function appendChunk({ hackle=false } = {}){
     const world = getWorldById(state.worldId);
@@ -919,6 +964,7 @@
     let i = start;
     let addedCount = 0;
     let addedLines = [];
+    let replaced = 0;
     const findSeed = (idx) => {
       for(let j=Math.min(idx, blocks.length-1); j>=0; j--){
         const raw = plainText(blocks[j] || "").trim();
@@ -939,14 +985,10 @@
 
       const pulseHit = pulseArmed && addedCount >= pulseIdx;
       if(hackle || pulseHit){
-        const c = classifyLine(rawPlain);
         const replace = hackle && hasMarkov && (pulseHit || Math.random() < 0.32);
-        if(c.kind === "speaker" && replace){
-          const g = generate(state.markov, c.txt || seed, 34);
-          addedLines.push({ text: `${c.spk}: ${g || c.txt}`, hackled:true });
-        } else if(replace){
-          const g = generate(state.markov, rawPlain || seed, 34);
-          addedLines.push({ text: g || rawPlain, hackled:true });
+        if(replace){
+          addedLines.push(hackleLine(raw, seed, 34));
+          replaced++;
         } else {
           addedLines.push({ text: raw, hackled:false });
         }
@@ -955,6 +997,11 @@
         addedLines.push({ text: raw, hackled:false });
       }
       addedCount++;
+    }
+
+    if(hackle && hasMarkov && !replaced && addedLines.length){
+      const idx = Math.floor(Math.random() * addedLines.length);
+      addedLines[idx] = hackleLine(addedLines[idx].text, seed, 34);
     }
 
     state.cursor = i;
@@ -1099,10 +1146,11 @@
     }
 
     if(atEnd){
-      setQuestion(`DAY ${day.day} END. CHOOSE VECTOR.`);
+      setQuestion(`DAY ${day.day} END. SHIFT WORLD?`);
       const endChoices = [
-        { label:"Next day/world", onClick: () => act(() => gotoDay(+1), { vector:"NEXT" }) },
-        { label:"Prev day/world", onClick: () => act(() => gotoDay(-1), { vector:"LOOP" }) },
+        { label:"Next Day", onClick: () => act(() => gotoDay(+1), { vector:"NEXT" }) },
+        { label:"Shift World", onClick: () => act(() => shiftWorld(+1), { vector:"SHIFT" }) },
+        { label:"Prev Day", onClick: () => act(() => gotoDay(-1), { vector:"LOOP" }) },
         { label:"Back in time", onClick: () => act(() => { if(!rewindChunk()) gotoDay(-1); }, { vector:"BACK" }) },
         { label:"Role", onClick: () => act(() => openRoleMenu(), { echo:false, vector:"ROLE" }) },
         { label:"Wormhole", onClick: () => act(() => appendWormhole({ hackle:false }), { echo:false, vector:"WORMHOLE" }) },

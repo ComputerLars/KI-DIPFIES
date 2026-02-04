@@ -12,6 +12,9 @@
     "summit","manifesto","protocol","dipfies","mostdipf","gipfeltreffen",
     "paletten","party","algorithm","wormhole","archive","synthetic",
   ];
+  const SPRITE_HOTWORDS = [
+    "dipfie","dipfies","vita","lars","vitus","mostdipf","hitler","bruckner","kepler"
+  ];
 
   const state = {
     build:"dev",
@@ -370,6 +373,7 @@
     SHIFT: 0.32,
     JUMP: 0.30,
     BOOT: 0.50,
+    KEYWORD: 0.42,
   };
   function maybeSprite(reason){
     const list = state.spriteList || [];
@@ -404,6 +408,11 @@
     const life = 2600 + Math.random() * 2600;
     setTimeout(() => img.classList.add("fadeout"), life);
     setTimeout(() => img.remove(), life + 520);
+  }
+  function hasHotword(lines){
+    if(!lines || !lines.length) return false;
+    const rx = new RegExp(`\\b(${SPRITE_HOTWORDS.join("|")})\\b`, "i");
+    return lines.some(l => rx.test(plainText(l.text || l)));
   }
 
   function morph(){ document.body.classList.add("morph"); setTimeout(()=>document.body.classList.remove("morph"),160); }
@@ -918,6 +927,7 @@
   function appendWormhole({ hackle=false } = {}){
     const addedLines = pickWormholeLines({ count: Math.floor(Math.random() * 8) + 6, hackle });
     if(!addedLines.length) return false;
+    if(hasHotword(addedLines)) maybeSprite("KEYWORD");
     if(state.scrollMode){
       state.buffer = state.buffer.concat(addedLines);
     } else {
@@ -1060,6 +1070,7 @@
       const splice = pickWormholeLines({ count: 2 + Math.floor(Math.random()*3) });
       if(splice.length) addedLines = addedLines.concat(splice);
     }
+    if(hasHotword(addedLines)) maybeSprite("KEYWORD");
 
     if(state.scrollMode){
       state.buffer = state.buffer.concat(addedLines);

@@ -1,7 +1,8 @@
 # **KI-DIPFIES – README**
 
-<img width="400" height="400" alt="dipfie_0058_Layer-13" src="https://github.com/user-attachments/assets/aa8b881c-7e6c-42e1-a8f6-5bab6597b6c8" />
-<img width="400" height="400" alt="dipfie_0029_Layer-41" src="https://github.com/user-attachments/assets/7b3af11f-2afb-49fd-8849-ccf5c1e43f13" />
+<img width="300" height="300" alt="dipfie_0046_Layer-25" src="https://github.com/user-attachments/assets/cc1c1d5c-cf41-4687-8bbf-3d61f0bf0313" />
+<img width="300" height="300" alt="dipfie_0058_Layer-13" src="https://github.com/user-attachments/assets/aa8b881c-7e6c-42e1-a8f6-5bab6597b6c8" />
+<img width="300" height="300" alt="dipfie_0029_Layer-41" src="https://github.com/user-attachments/assets/7b3af11f-2afb-49fd-8849-ccf5c1e43f13" />
 
 **KI-DIPFIES** is a technosocial sculpture and experimental AI swarm installation, unfolding as a participatory political platform at [Kunstraum MEMPHIS (Linz)](https://www.memphismemph.is/programm/ki-dipfies). From 12 Feb to 10 Mar 2026 (with a live summit “KI-DIPFEL Gipfeltreffen” on 2–6 Mar), we turn the gallery into a Parteibüro (party office) where humans and AI delegates tangle towards local party-building. From 12 Feb to 10 Mar 2026 (with a live summit "KI-DIPFEL Gipfeltreffen" on 2–6 Mar), we turn the gallery into a Parteibüro (party office) where humans and AI delegates tangle towards local party-building. This repository serves as the companion backend narrative, equal parts technical guide, theoretical treatise, and swarm manifesto.
 

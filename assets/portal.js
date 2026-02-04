@@ -650,19 +650,33 @@
     const groups = eraGroups();
     const eras = Array.from(groups.keys()).sort();
     const labelMap = buildEraLabelMap();
+    const node = (w) => `<span class="map-node" data-world="${escapeHTML(w.id)}">${worldLabel(w, labelMap)}</span>`;
     const lines = [
-      { text:"[WORLD MAP]", hackled:false },
-      { text:"SELECT A NODE BELOW.", hackled:false },
+      { text:"<span class=\"map-line\">[WORLD MAP]</span>", hackled:false },
+      { text:"<span class=\"map-line\">CLICK A NODE OR EXIT.</span>", hackled:false },
       { text:"", hackled:false },
     ];
     if(!eras.length){
       lines.push({ text:"(no worlds available)", hackled:false });
       return lines;
     }
-    for(const era of eras){
-      const worlds = sortedEraWorlds(era);
-      const row = worlds.map(w => worldLabel(w, labelMap)).join(" <-> ");
-      lines.push({ text:`ERA ${era}: ${row}`, hackled:false });
+    const makeRow = (worlds) => worlds.map(w => node(w)).join("&nbsp;--&nbsp;");
+    const rootEra = eras.includes(PRESENT_ERA) ? PRESENT_ERA : eras[0];
+    const futureEras = eras.filter(e => e !== rootEra);
+    const rootWorlds = sortedEraWorlds(rootEra);
+    lines.push({ text:`<span class="map-line">ERA ${rootEra}</span>`, hackled:false });
+    lines.push({ text:`<span class="map-line">&nbsp;&nbsp;${makeRow(rootWorlds)}</span>`, hackled:false });
+    if(futureEras.length){
+      lines.push({ text:`<span class="map-line">&nbsp;&nbsp;|</span>`, hackled:false });
+      futureEras.forEach((era, idx) => {
+        const worlds = sortedEraWorlds(era);
+        lines.push({ text:`<span class="map-line">&nbsp;&nbsp;+-- ERA ${era}</span>`, hackled:false });
+        const branch = idx < futureEras.length - 1 ? "&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;" : "&nbsp;&nbsp;&nbsp;&nbsp;";
+        lines.push({ text:`<span class="map-line">${branch}${makeRow(worlds)}</span>`, hackled:false });
+        if(idx < futureEras.length - 1){
+          lines.push({ text:`<span class="map-line">&nbsp;&nbsp;|</span>`, hackled:false });
+        }
+      });
     }
     return lines;
   }
@@ -715,6 +729,24 @@
     }
     state.scrollTopNext = true;
     state.roleMenu = false;
+  }
+  function jumpToWorld(worldId){
+    const w = getWorldById(worldId);
+    if(!w) return;
+    state.worldId = w.id;
+    const days = allDayNos(w);
+    state.dayNo = days[0] || 1;
+    state.cursor = 0;
+    state.buffer = [{ text:`(entering Day ${state.dayNo})`, hackled:false }];
+    state.chunkStack = [];
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.mapMenu = false;
+    state.mapSnapshot = null;
+    state.timeMenu = false;
+    state.roleMenu = false;
+    state.scrollTopNext = true;
+    localStorage.setItem("ki_world", state.worldId || "");
   }
 
   function ghostMaybe(){
@@ -1011,34 +1043,10 @@
     }
 
     if(state.mapMenu){
-      setQuestion("WORLD MAP: SELECT WORLD.");
-      const groups = eraGroups();
-      const eras = Array.from(groups.keys()).sort();
-      const labelMap = buildEraLabelMap();
-      const btns = [];
-      for(const era of eras){
-        const worlds = sortedEraWorlds(era);
-        for(const w of worlds){
-          const label = worldLabel(w, labelMap);
-          btns.push({
-            label: `${era} ${label}`,
-            onClick: () => act(() => {
-              state.worldId = w.id;
-              const days = allDayNos(w);
-              state.dayNo = days[0] || 1;
-              state.cursor = 0;
-              state.buffer = [{ text:`(entering Day ${state.dayNo})`, hackled:false }];
-              state.chunkStack = [];
-              state.scrollMode = false;
-              state.scrollSnapshot = null;
-              state.mapMenu = false;
-              state.mapSnapshot = null;
-              state.scrollTopNext = true;
-            }, { echo:false, vector:"MAP" }),
-          });
-        }
-      }
-      btns.push({ label:"Exit", onClick: () => act(() => exitMapMenu(), { echo:false, vector:"FLOW" }) });
+      setQuestion("WORLD MAP: CLICK NODE OR EXIT.");
+    const btns = [
+      { label:"Exit", onClick: () => act(() => exitMapMenu(), { echo:false, vector:"FLOW" }) },
+    ];
       setChoices(btns);
       return;
     }
@@ -1130,6 +1138,17 @@
     const buf = $("#buffer");
     if(buf){
       buf.addEventListener("click", (e) => {
+        const node = e.target.closest(".map-node");
+        if(node){
+          const id = node.getAttribute("data-world");
+          if(!id) return;
+          click();
+          state.vector = "MAP";
+          jumpToWorld(id);
+          render();
+          persist();
+          return;
+        }
         const spk = e.target.closest(".spk");
         if(spk){
           const name = spk.getAttribute("data-spk") || spk.textContent.replace(/:$/,"");

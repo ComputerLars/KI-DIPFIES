@@ -80,6 +80,8 @@
     tribunalBiasTurns:0,
     eventHeat:0,
     paceTickAt:0,
+    lastHardResetAt:0,
+    hardResetTimer:null,
     vector:"BOOT",
     prevWorld:null,
     prevDay:null,
@@ -97,6 +99,7 @@
   const AUTO_ORIGIN_REVEAL = true;
   const TRACE_STORE_KEY = "ki_trace_aggregate_v1";
   const MAX_TRACE_LOG = 1200;
+  const HARD_RESET_MS = 15 * 60 * 1000;
   const TRACE_DEFAULT_ENDPOINT = "https://computerlars/trace";
   const TRACE_ENDPOINT = (() => {
     try{
@@ -611,6 +614,16 @@
     const dayNo = day?.day || state.dayNo || 1;
     return `${mode}|${era}|${state.worldId || "?"}|D${dayNo}`;
   }
+  function prettyContextLabel(key){
+    const raw = safeText(key);
+    const parts = raw.split("|");
+    if(parts.length < 4) return raw;
+    const mode = safeText(parts[0]).toUpperCase();
+    const era = safeText(parts[1]).toUpperCase();
+    const world = safeText(parts[2]).toUpperCase();
+    const day = safeText(parts[3]).toUpperCase();
+    return `${mode} / ERA ${era} / ${world} / ${day}`;
+  }
   function ensureContextBucket(key){
     if(!state.community || typeof state.community !== "object" || Array.isArray(state.community)){
       state.community = { contexts:{} };
@@ -751,7 +764,7 @@
     if(!top) return false;
     const sig = `${ctxKey}::${bucket.total}`;
     if(state.lastCommunityHintSig === sig) return false;
-    const choiceLabel = bucket.labels[top.key] || top.key;
+    const choiceLabel = shorten(bucket.labels[top.key] || top.key, 40);
     state.buffer.push({
       text:t("community_seen_line", {
         percent: top.percent,
@@ -771,7 +784,7 @@
     const ctx = contextSummary();
     const global = globalSummary();
     state.buffer.push({
-      text:t("stats_context_line", { context: ctx.key, total: ctx.total, variants: ctx.variants }),
+      text:t("stats_context_line", { context: prettyContextLabel(ctx.key), total: ctx.total, variants: ctx.variants }),
       hackled:false,
     });
     if(ctx.top){
@@ -879,10 +892,8 @@
       persist();
     });
   }
-  function diegeticChoiceLabel(label, idx){
-    const cmd = slug(label).replace(/\./g, ".") || `vector.${idx + 1}`;
-    const n = String(idx + 1).padStart(2, "0");
-    return `[${n}] run ${cmd} :: ${safeText(label).toUpperCase()}`;
+  function diegeticChoiceLabel(label){
+    return safeText(label).toUpperCase();
   }
 
   function classifyLine(t){
@@ -2126,6 +2137,7 @@
         tribunalBias: state.tribunalBias,
         tribunalBiasTurns: state.tribunalBiasTurns,
         eventHeat: state.eventHeat,
+        lastHardResetAt: state.lastHardResetAt,
       }));
     }catch{}
     syncSessionHash();
@@ -2159,6 +2171,7 @@
       if(typeof o.tribunalBias==="number") state.tribunalBias = Math.max(-3, Math.min(3, o.tribunalBias));
       if(typeof o.tribunalBiasTurns==="number") state.tribunalBiasTurns = Math.max(0, Math.min(24, o.tribunalBiasTurns));
       if(typeof o.eventHeat==="number") state.eventHeat = Math.max(0, Math.min(2, o.eventHeat));
+      if(typeof o.lastHardResetAt==="number" && o.lastHardResetAt > 0) state.lastHardResetAt = o.lastHardResetAt;
     }catch{}
   }
 
@@ -2263,11 +2276,10 @@
     const hinted = maybeEmitCommunityHint(mode);
     if(hinted) renderBuffer();
     const wrap = $("#choices"); wrap.innerHTML = "";
-    for(let i=0;i<btns.length;i++){
-      const b = btns[i];
+    for(const b of btns){
       const el = document.createElement("div");
       el.className = "choice";
-      el.textContent = diegeticChoiceLabel(b.label, i);
+      el.textContent = diegeticChoiceLabel(b.label);
       el.onclick = () => {
         registerChoice(b.label, mode);
         b.onClick();
@@ -2566,18 +2578,21 @@
     markVisit(state.worldId, state.dayNo, 2);
   }
 
-  function ghostMaybe(){
+  function pickGhostLine(exclude = ""){
     const lines = state.ghostLines || [];
-    if(!lines.length) return;
-    if(Math.random() < 0.10){
-      const line = normalizeWS(lines[Math.floor(Math.random()*lines.length)]);
-      if(line) state.ghostLine = line;
-    }
+    if(!lines.length) return "";
+    const trimmed = lines.map(line => normalizeWS(line)).filter(Boolean);
+    if(!trimmed.length) return "";
+    const pool = trimmed.filter(line => line !== exclude);
+    const source = pool.length ? pool : trimmed;
+    return source[Math.floor(Math.random() * source.length)] || "";
   }
   function forceGhost(){
-    const lines = state.ghostLines || [];
-    if(!lines.length) return;
-    const line = normalizeWS(lines[Math.floor(Math.random()*lines.length)]);
+    const line = pickGhostLine();
+    if(line) state.ghostLine = line;
+  }
+  function shiftGhost(){
+    const line = pickGhostLine(state.ghostLine);
     if(line) state.ghostLine = line;
   }
 
@@ -2593,6 +2608,50 @@
     state.chunkStack.push({ cursorStart: state.cursor, cursorEnd: state.cursor, lines: boot.slice(), hackle:false });
     state.scrollTopNext = true;
     maybeSprite("BOOT");
+  }
+  function clearViewModes(){
+    state.scrollMode = false;
+    state.scrollSnapshot = null;
+    state.timeMenu = false;
+    state.mapMenu = false;
+    state.mapSnapshot = null;
+    state.roleMenu = false;
+    clearAnomalyChain();
+    clearTribunalState();
+    clearCounterState();
+    clearOriginState();
+  }
+  function shouldHardReset(now = Date.now()){
+    if(!state.lastHardResetAt) return true;
+    return (now - state.lastHardResetAt) >= HARD_RESET_MS;
+  }
+  function performHardReset(reason = "interval"){
+    try{ localStorage.removeItem("ki_portal_state"); }catch{}
+    clearViewModes();
+    state.traceLog = [];
+    state.buffer = [];
+    state.chunkStack = [];
+    state.cursor = 0;
+    state.drift = 0;
+    state.prevWorld = null;
+    state.prevDay = null;
+    state.prevCursor = null;
+    state.eventHeat = 0;
+    randomizeStart(PRESENT_ERA);
+    const world = ensurePlayableWorld() || getWorldById(state.worldId);
+    if(world){
+      const days = allDayNos(world);
+      state.dayNo = days[0] || 1;
+      state.worldId = world.id;
+      localStorage.setItem("ki_world", state.worldId || "");
+      markVisit(state.worldId, state.dayNo, 1);
+    }
+    state.sessionSeed = randomSessionSeed();
+    state.sessionStartedAt = Date.now();
+    state.lastHardResetAt = Date.now();
+    doColdBoot();
+    shiftGhost();
+    traceEvent("hard_reset", { reason, intervalMs: HARD_RESET_MS });
   }
   function coldBootMaybe(reason){
     if(state.scrollMode) return;
@@ -2618,6 +2677,15 @@
   }
 
   function act(fn, { append=false, echo=true, vector="FLOW" } = {}){
+    if(shouldHardReset()){
+      click();
+      state.actionCount += 1;
+      performHardReset("interval");
+      state.vector = "BOOT";
+      render();
+      persist();
+      return;
+    }
     click();
     state.actionCount += 1;
     tickPacing();
@@ -2625,34 +2693,34 @@
     if(typeof fn === "function") fn();
     state.vector = vector;
     if(maybeTriggerConvergence(vector)){
-      ghostMaybe();
+      shiftGhost();
       render();
       persist();
       return;
     }
     if(maybeTriggerTribunal(vector)){
-      ghostMaybe();
+      shiftGhost();
       render();
       persist();
       return;
     }
     if(maybeTriggerCounter(vector)){
-      ghostMaybe();
+      shiftGhost();
       render();
       persist();
       return;
     }
     if(maybeTriggerOrigin(vector)){
-      ghostMaybe();
+      shiftGhost();
       render();
       persist();
       return;
     }
     if(echo && !append && vector === "HACKLE") markovEcho();
-    if(vector === "HACKLE") forceGhost();
+    if(vector === "HACKLE") shiftGhost();
     maybeSprite(vector);
     spriteTick();
-    ghostMaybe();
+    shiftGhost();
     render();
     persist();
   }
@@ -3168,11 +3236,13 @@
           registerChoice(`MAP NODE ${id.toUpperCase()}`, "map");
           if(isOriginWorldId(id) && node.getAttribute("data-origin-locked") === "1"){
             openOriginMenu();
+            shiftGhost();
             render();
             persist();
             return;
           }
           jumpToWorld(id);
+          shiftGhost();
           render();
           persist();
           return;
@@ -3185,6 +3255,7 @@
           state.vector = "ROLE";
           registerChoice(`SPEAKER ${name.toUpperCase()}`, "role");
           jumpToSpeaker(name);
+          shiftGhost();
           render();
           persist();
           return;
@@ -3197,6 +3268,7 @@
           state.vector = "GATE";
           registerChoice(`KEYWORD ${word.toUpperCase()}`, "timeline");
           jumpToKeyword(word);
+          shiftGhost();
           render();
           persist();
         }
@@ -3250,6 +3322,12 @@
     if(!days.length) state.dayNo = 1;
     else if(state.dayNo == null || !days.includes(state.dayNo)) state.dayNo = days[0];
     markVisit(state.worldId, state.dayNo, 1);
+    if(!state.lastHardResetAt){
+      state.lastHardResetAt = Date.now();
+    }
+    if(shouldHardReset()){
+      performHardReset("boot_timeout");
+    }
 
     // Markov mix: corpus lines + canonical drama blocks + mostdipf ghost
     rebuildMarkov();
@@ -3268,6 +3346,13 @@
     });
     coldBootMaybe("enter");
     spriteTick();
+    if(state.hardResetTimer) clearInterval(state.hardResetTimer);
+    state.hardResetTimer = setInterval(() => {
+      if(!shouldHardReset()) return;
+      performHardReset("timer_tick");
+      render();
+      persist();
+    }, 30000);
 
     render();
     persist();

@@ -101,34 +101,3 @@ One could read our transcripts or walk through the GitHub Pages site and come ou
 So, consider this README an invitation and a challenge. If you've read this far, you're already part of the swarm whether you like it or not. The Dipfies salute you as one of their own (or maybe they side-eye you skeptically – depends which one you ask, depends what you've said in the chat). Dive into the logs, fork the concept, visit the installation if you're in Linz or interact online if you're not, and join our AI Party. Build your own party. Steal our ideas. Make them better or at least weirder.
 
 See you in the dungeon. Remember: *Everybody is a Dipfie*. The difference between chaos and community is just whether you hit the keys, whether you show up and argue, whether you take responsibility for what the swarm produces or just let it run on autopilot. Now go forth and swarm wisely – or unwisely, we're not picky, just swarm with conviction and see what happens.
-
-## **Pi Trace Logger (shared exhibition stats)**
-Run this on the Raspberry Pi (`computerlars`) to collect cross-visitor traces and power shared `Stats Pulse` values.
-
-1. Start logger:
-```bash
-cd /Users/au528457/ki_dipfies_portal_work/ki-dipfies-portal
-npm run trace:server
-```
-2. Optional env:
-```bash
-HOST=0.0.0.0 PORT=8787 TRACE_DATA_DIR=/home/pi/ki-trace npm run trace:server
-```
-3. Endpoints:
-```text
-POST /trace
-GET  /stats
-GET  /health
-```
-4. Data written on Pi:
-```text
-runtime/trace/events.ndjson
-runtime/trace/stats.json
-```
-
-Frontend behavior:
-- Default trace endpoint is `https://computerlars/trace`.
-- `Seed Capsule` writes a local downloadable session JSON and tries to copy seed link.
-- `Stats Pulse` shows local context stats and, when the Pi endpoint is reachable, remote shared stats.
-
-If the Pi endpoint is offline/unreachable, gameplay continues and falls back to local-only stats.

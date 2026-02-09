@@ -30,6 +30,13 @@
     buffer:[],
     markov:null,
     corpus:null,
+    sessionSeed:"",
+    sessionStartedAt:0,
+    traceLog:[],
+    community:{},
+    nextCommunityHintAt:0,
+    lastCommunityHintSig:"",
+    currentQuestion:"",
     scrollTopNext:false,
     roleMenu:false,
     roleOptions:[],
@@ -88,6 +95,20 @@
   const ORIGIN_WORLD_IDS = ["origin-aleph"];
   const ORIGIN_ERA = "א";
   const AUTO_ORIGIN_REVEAL = true;
+  const TRACE_STORE_KEY = "ki_trace_aggregate_v1";
+  const MAX_TRACE_LOG = 1200;
+  const TRACE_ENDPOINT = (() => {
+    try{
+      const qp = new URLSearchParams(location.search || "").get("trace");
+      if(qp) return qp.trim();
+      const w = (typeof window !== "undefined" && typeof window.KI_TRACE_ENDPOINT === "string") ? window.KI_TRACE_ENDPOINT.trim() : "";
+      if(w) return w;
+      const ls = localStorage.getItem("ki_trace_endpoint");
+      return (ls || "").trim();
+    }catch{
+      return "";
+    }
+  })();
   const I18N = {
     en: {
       lang_label: "LANG",
@@ -115,6 +136,20 @@
       more_names: "MORE NAMES",
       exit: "Exit",
       map_question: "WORLD MAP: CLICK NODE OR EXIT.",
+      copy_seed_link: "Copy Seed Link",
+      download_session: "Download Session",
+      trace_affirm: "Mark: Affirm",
+      trace_contest: "Mark: Contest",
+      trace_unclear: "Mark: Unclear",
+      trace_refuse: "Mark: Refuse",
+      trace_logged: ({ label }) => `(trace logged: ${label})`,
+      session_link_copied: "(session seed link copied)",
+      session_link_failed: "(copy blocked, link logged in terminal)",
+      session_downloaded: "(session log downloaded)",
+      session_link_line: ({ link }) => `(session link: ${link})`,
+      community_seen_line: ({ percent, choice }) => `(${percent}% were here before you; most chose ${choice})`,
+      community_ask_line: "what would you do?",
+      sager_idle: "SAGER CHANNEL IDLE // waiting for next contradiction",
       origin_key_locked_line: "ORIGIN KEYSPACE: SEALED (MAP ACCESS ONLY).",
       origin_key_open_line: "ORIGIN KEYSPACE: OPEN.",
       time_jump_question: "TIME JUMP: SELECT YEAR.",
@@ -219,6 +254,20 @@
       more_names: "MEHR NAMEN",
       exit: "Exit",
       map_question: "WELTENKARTE: KNOTEN KLICKEN ODER EXIT.",
+      copy_seed_link: "Seed-Link kopieren",
+      download_session: "Session laden",
+      trace_affirm: "Spur: Zustimmen",
+      trace_contest: "Spur: Widerspruch",
+      trace_unclear: "Spur: Unklar",
+      trace_refuse: "Spur: Ablehnen",
+      trace_logged: ({ label }) => `(Spur protokolliert: ${label})`,
+      session_link_copied: "(Session-Seed-Link kopiert)",
+      session_link_failed: "(Kopieren blockiert, Link im Terminal protokolliert)",
+      session_downloaded: "(Session-Log heruntergeladen)",
+      session_link_line: ({ link }) => `(Session-Link: ${link})`,
+      community_seen_line: ({ percent, choice }) => `(${percent}% waren vor dir hier; meistens gewählt: ${choice})`,
+      community_ask_line: "Was würdest du tun?",
+      sager_idle: "SAGER-KANAL IDLE // wartet auf den nächsten Widerspruch",
       origin_key_locked_line: "ORIGIN-SCHLUESSELRAUM: VERSIEGELT (NUR UEBER KARTE).",
       origin_key_open_line: "ORIGIN-SCHLUESSELRAUM: OFFEN.",
       time_jump_question: "ZEITSPRUNG: JAHR WÄHLEN.",
@@ -303,13 +352,13 @@
       FLOW:"FLOW", BACK:"BACK", NEXT:"NEXT", LOOP:"LOOP", ROLE:"ROLE",
       WORMHOLE:"WORMHOLE", HACKLE:"HACKLE", JUMP:"JUMP", MAP:"MAP",
       SCROLL:"SCROLL", SHIFT:"SHIFT", GATE:"GATE", BOOT:"BOOT", BREACH:"BREACH",
-      TRIB:"TRIBUNAL", REPLAY:"REPLAY", ORIGIN:"ALEPH",
+      TRIB:"TRIBUNAL", REPLAY:"REPLAY", ORIGIN:"ALEPH", TRACE:"TRACE",
     },
     de: {
       FLOW:"FLUSS", BACK:"ZURUECK", NEXT:"VOR", LOOP:"SCHLEIFE", ROLE:"ROLLE",
       WORMHOLE:"WURMLOCH", HACKLE:"HACKLE", JUMP:"SPRUNG", MAP:"KARTE",
       SCROLL:"SCROLL", SHIFT:"WECHSEL", GATE:"GATE", BOOT:"BOOT", BREACH:"BRUCH",
-      TRIB:"TRIBUNAL", REPLAY:"REPLAY", ORIGIN:"ALEPH",
+      TRIB:"TRIBUNAL", REPLAY:"REPLAY", ORIGIN:"ALEPH", TRACE:"SPUR",
     },
   };
   const t = (key, vars) => {
@@ -346,6 +395,11 @@
     return t.length > n ? `${t.slice(0, n-1).trim()}…` : t;
   };
   const normalizeWS = (s) => safeText(s).replace(/\s+/g, " ").trim();
+  const slug = (s) => safeText(s)
+    .toLowerCase()
+    .replace(/[^a-z0-9à-öø-ÿ]+/g, ".")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 48);
   const splitHtmlAtPlainIndex = (html, idx) => {
     const s = safeText(html);
     let plainCount = 0;
@@ -447,6 +501,294 @@
       out.push(w);
     }
     return detok(out);
+  }
+
+  function randomSessionSeed(){
+    const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+    let out = "";
+    for(let i=0;i<10;i++){
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+  }
+  function readHashState(){
+    const raw = safeText(location.hash || "").replace(/^#\??/, "");
+    if(!raw) return {};
+    try{
+      const p = new URLSearchParams(raw);
+      const seed = normalizeWS(p.get("seed") || "").toLowerCase();
+      const lang = normalizeWS(p.get("lang") || "").toLowerCase();
+      const world = normalizeWS(p.get("world") || "");
+      const day = Number(p.get("day"));
+      const cursor = Number(p.get("cursor"));
+      return {
+        seed: seed || "",
+        lang: (lang === "de" || lang === "en") ? lang : "",
+        world: world || "",
+        day: Number.isFinite(day) ? day : null,
+        cursor: Number.isFinite(cursor) ? cursor : null,
+      };
+    }catch{
+      return {};
+    }
+  }
+  function applyHashState(o = {}){
+    if(o.lang === "de" || o.lang === "en"){
+      state.lang = o.lang;
+    }
+    if(o.seed){
+      state.sessionSeed = slug(o.seed).replace(/\./g, "") || o.seed;
+    }
+    if(o.world){
+      state.worldId = o.world;
+    }
+    if(Number.isFinite(o.day) && o.day > 0){
+      state.dayNo = Math.floor(o.day);
+    }
+    if(Number.isFinite(o.cursor) && o.cursor >= 0){
+      state.cursor = Math.floor(o.cursor);
+    }
+  }
+  function ensureSessionSeed(){
+    if(state.sessionSeed) return state.sessionSeed;
+    state.sessionSeed = randomSessionSeed();
+    return state.sessionSeed;
+  }
+  function sessionHash(){
+    const p = new URLSearchParams();
+    p.set("seed", ensureSessionSeed());
+    p.set("lang", state.lang || "en");
+    if(state.worldId) p.set("world", state.worldId);
+    if(Number.isFinite(state.dayNo)) p.set("day", String(Math.max(1, state.dayNo)));
+    if(Number.isFinite(state.cursor)) p.set("cursor", String(Math.max(0, state.cursor)));
+    return `#${p.toString()}`;
+  }
+  function syncSessionHash(){
+    const h = sessionHash();
+    if(location.hash !== h){
+      history.replaceState(null, "", `${location.pathname}${h}`);
+    }
+  }
+  function sessionLink(){
+    return `${location.origin}${location.pathname}${sessionHash()}`;
+  }
+  function readCommunityStore(){
+    try{
+      const raw = localStorage.getItem(TRACE_STORE_KEY);
+      if(!raw) return { contexts:{} };
+      const parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === "object" && !Array.isArray(parsed)){
+        if(!parsed.contexts || typeof parsed.contexts !== "object") parsed.contexts = {};
+        return parsed;
+      }
+    }catch{}
+    return { contexts:{} };
+  }
+  function writeCommunityStore(){
+    try{
+      localStorage.setItem(TRACE_STORE_KEY, JSON.stringify(state.community || { contexts:{} }));
+    }catch{}
+  }
+  function activeMenuContext(){
+    if(state.originMenu) return "origin";
+    if(state.anomalyMenu) return "breach";
+    if(state.tribunalMenu) return "tribunal";
+    if(state.counterMenu) return "replay";
+    if(state.mapMenu) return "map";
+    if(state.timeMenu) return "jump";
+    if(state.roleMenu) return "role";
+    if(state.scrollMode) return "scroll";
+    const world = getWorldById(state.worldId);
+    const day = getDay(world, state.dayNo);
+    const blocks = day?.blocks || [];
+    const atEnd = state.cursor >= blocks.length;
+    return atEnd ? "end" : "timeline";
+  }
+  function currentContextKey(mode = activeMenuContext()){
+    const world = getWorldById(state.worldId);
+    const era = worldEra(world) || PRESENT_ERA;
+    const day = getDay(world, state.dayNo);
+    const dayNo = day?.day || state.dayNo || 1;
+    return `${mode}|${era}|${state.worldId || "?"}|D${dayNo}`;
+  }
+  function ensureContextBucket(key){
+    if(!state.community || typeof state.community !== "object" || Array.isArray(state.community)){
+      state.community = { contexts:{} };
+    }
+    if(!state.community.contexts || typeof state.community.contexts !== "object"){
+      state.community.contexts = {};
+    }
+    if(!state.community.contexts[key]){
+      state.community.contexts[key] = { total:0, choices:{}, labels:{}, marks:{} };
+    }
+    const b = state.community.contexts[key];
+    if(typeof b.total !== "number") b.total = 0;
+    if(!b.choices || typeof b.choices !== "object") b.choices = {};
+    if(!b.labels || typeof b.labels !== "object") b.labels = {};
+    if(!b.marks || typeof b.marks !== "object") b.marks = {};
+    return b;
+  }
+  function dominantChoice(bucket){
+    const entries = Object.entries(bucket?.choices || {});
+    if(!entries.length || !(bucket?.total > 0)) return null;
+    entries.sort((a,b) => b[1] - a[1]);
+    const [key, count] = entries[0];
+    const percent = Math.round((count / bucket.total) * 100);
+    return { key, count, percent };
+  }
+  function postTrace(event){
+    if(!TRACE_ENDPOINT) return;
+    const payload = JSON.stringify(event);
+    try{
+      if(navigator.sendBeacon){
+        const blob = new Blob([payload], { type:"application/json" });
+        navigator.sendBeacon(TRACE_ENDPOINT, blob);
+        return;
+      }
+    }catch{}
+    fetch(TRACE_ENDPOINT, {
+      method:"POST",
+      mode:"no-cors",
+      keepalive:true,
+      headers:{ "content-type":"application/json" },
+      body: payload,
+    }).catch(() => {});
+  }
+  function traceEvent(type, data = {}){
+    const world = getWorldById(state.worldId);
+    const day = getDay(world, state.dayNo);
+    const event = {
+      ts: new Date().toISOString(),
+      type,
+      seed: ensureSessionSeed(),
+      lang: state.lang,
+      worldId: state.worldId || "",
+      era: worldEra(world) || PRESENT_ERA,
+      day: day?.day || state.dayNo || 0,
+      vector: state.vector || "FLOW",
+      data,
+    };
+    state.traceLog.push(event);
+    if(state.traceLog.length > MAX_TRACE_LOG){
+      state.traceLog.splice(0, state.traceLog.length - MAX_TRACE_LOG);
+    }
+    postTrace(event);
+  }
+  function registerChoice(label, mode){
+    const normalizedLabel = normalizeWS(label);
+    const choiceKey = slug(normalizedLabel) || `choice.${Date.now().toString(36)}`;
+    const ctxKey = currentContextKey(mode);
+    const bucket = ensureContextBucket(ctxKey);
+    const domBefore = dominantChoice(bucket);
+    bucket.total += 1;
+    bucket.choices[choiceKey] = (bucket.choices[choiceKey] || 0) + 1;
+    bucket.labels[choiceKey] = normalizedLabel;
+    writeCommunityStore();
+    if(domBefore && bucket.total >= 5){
+      if(domBefore.key === choiceKey){
+        state.drift = clamp01(state.drift * 0.988);
+      } else {
+        state.drift = clamp01(state.drift + 0.02);
+        spendHeat(0.05);
+      }
+    }
+    traceEvent("choice", {
+      context: ctxKey,
+      choice: choiceKey,
+      label: normalizedLabel,
+      priorMajority: domBefore ? (bucket.labels[domBefore.key] || domBefore.key) : null,
+      priorMajorityPercent: domBefore ? domBefore.percent : null,
+    });
+  }
+  function maybeEmitCommunityHint(mode){
+    if(!["timeline","end","breach","tribunal","replay","origin"].includes(mode)) return false;
+    const now = Date.now();
+    if(now < (state.nextCommunityHintAt || 0)) return false;
+    const ctxKey = currentContextKey(mode);
+    const bucket = ensureContextBucket(ctxKey);
+    if(bucket.total < 4) return false;
+    const top = dominantChoice(bucket);
+    if(!top) return false;
+    const sig = `${ctxKey}::${bucket.total}`;
+    if(state.lastCommunityHintSig === sig) return false;
+    const choiceLabel = bucket.labels[top.key] || top.key;
+    state.buffer.push({ text:t("community_seen_line", { percent: top.percent, choice: choiceLabel }), hackled:false });
+    state.buffer.push({ text:t("community_ask_line"), hackled:false });
+    state.scrollTopNext = true;
+    state.lastCommunityHintSig = sig;
+    state.nextCommunityHintAt = now + 28000 + Math.floor(Math.random() * 28000);
+    return true;
+  }
+  function registerTraceMark(mark){
+    const mode = activeMenuContext();
+    const ctxKey = currentContextKey(mode);
+    const bucket = ensureContextBucket(ctxKey);
+    bucket.marks[mark] = (bucket.marks[mark] || 0) + 1;
+    writeCommunityStore();
+    if(mark === "affirm"){
+      state.drift = clamp01(state.drift * 0.985);
+    } else if(mark === "contest"){
+      state.drift = clamp01(state.drift + 0.03);
+      spendHeat(0.06);
+    } else if(mark === "refuse"){
+      state.drift = clamp01(state.drift + 0.015);
+    } else {
+      state.drift = clamp01(state.drift + 0.005);
+    }
+    traceEvent("annotation", { context: ctxKey, mark });
+    state.buffer.push({ text:t("trace_logged", { label: t(`trace_${mark}`) }), hackled:false });
+    state.scrollTopNext = true;
+  }
+  function copySessionLink(){
+    const link = sessionLink();
+    const finish = (copied) => {
+      state.buffer.push({ text: copied ? t("session_link_copied") : t("session_link_failed"), hackled:false });
+      state.buffer.push({ text:t("session_link_line", { link }), hackled:false });
+      state.scrollTopNext = true;
+      traceEvent("session_link", { copied, link });
+      render();
+      persist();
+    };
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(link).then(() => finish(true)).catch(() => finish(false));
+        return;
+      }
+    }catch{}
+    finish(false);
+  }
+  function downloadSessionLog(){
+    const world = getWorldById(state.worldId);
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      seed: ensureSessionSeed(),
+      startedAt: state.sessionStartedAt ? new Date(state.sessionStartedAt).toISOString() : null,
+      lang: state.lang,
+      worldId: state.worldId,
+      era: worldEra(world) || PRESENT_ERA,
+      day: state.dayNo,
+      cursor: state.cursor,
+      vector: state.vector,
+      traceLog: state.traceLog,
+      community: state.community,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type:"application/json" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = `ki-dipfies-session-${ensureSessionSeed()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1200);
+    state.buffer.push({ text:t("session_downloaded"), hackled:false });
+    state.scrollTopNext = true;
+    traceEvent("session_download", { size: payload.traceLog.length });
+  }
+  function diegeticChoiceLabel(label, idx){
+    const cmd = slug(label).replace(/\./g, ".") || `vector.${idx + 1}`;
+    const n = String(idx + 1).padStart(2, "0");
+    return `[${n}] run ${cmd} :: ${safeText(label).toUpperCase()}`;
   }
 
   function classifyLine(t){
@@ -1673,6 +2015,8 @@
     try{
       const now = Date.now();
       localStorage.setItem("ki_portal_state", JSON.stringify({
+        sessionSeed: ensureSessionSeed(),
+        sessionStartedAt: state.sessionStartedAt,
         lang: state.lang, clicks: state.clicks, worldId: state.worldId, dayNo: state.dayNo, cursor: state.cursor,
         drift: state.drift, buffer: state.buffer.slice(-260),
         visits: state.visits, erasSeen: state.erasSeen.slice(-24), lastVisitKey: state.lastVisitKey,
@@ -1690,6 +2034,7 @@
         eventHeat: state.eventHeat,
       }));
     }catch{}
+    syncSessionHash();
   }
   function restore(){
     try{
@@ -1697,6 +2042,8 @@
       state.hasSaved = true;
       const o = JSON.parse(raw);
       const langMismatch = o.lang && o.lang !== state.lang;
+      if(typeof o.sessionSeed==="string" && o.sessionSeed.trim()) state.sessionSeed = o.sessionSeed.trim();
+      if(typeof o.sessionStartedAt==="number" && o.sessionStartedAt > 0) state.sessionStartedAt = o.sessionStartedAt;
       if(typeof o.clicks==="number") state.clicks=o.clicks;
       if(typeof o.worldId==="string") state.worldId=o.worldId;
       if(typeof o.dayNo==="number") state.dayNo=o.dayNo;
@@ -1805,15 +2152,32 @@
   function renderGhost(){
     const box = $("#ghost-text");
     if(!box) return;
-    box.textContent = state.ghostLine || "";
+    if(!normalizeWS(state.ghostLine)){
+      const lines = state.ghostLines || [];
+      if(lines.length){
+        forceGhost();
+      } else {
+        state.ghostLine = t("sager_idle");
+      }
+    }
+    box.textContent = state.ghostLine || t("sager_idle");
   }
 
   function setQuestion(text){ $("#q").textContent = `> ${text}`; }
   function setChoices(btns){
+    const mode = activeMenuContext();
+    const hinted = maybeEmitCommunityHint(mode);
+    if(hinted) renderBuffer();
     const wrap = $("#choices"); wrap.innerHTML = "";
-    for(const b of btns){
+    for(let i=0;i<btns.length;i++){
+      const b = btns[i];
       const el = document.createElement("div");
-      el.className = "choice"; el.textContent = b.label; el.onclick = b.onClick;
+      el.className = "choice";
+      el.textContent = diegeticChoiceLabel(b.label, i);
+      el.onclick = () => {
+        registerChoice(b.label, mode);
+        b.onClick();
+      };
       wrap.appendChild(el);
     }
   }
@@ -2602,9 +2966,15 @@
 
     if(state.mapMenu){
       setQuestion(t("map_question"));
-    const btns = [
-      { label:t("exit"), onClick: () => act(() => exitMapMenu(), { echo:false, vector:"FLOW" }) },
-    ];
+      const btns = [
+        { label:t("copy_seed_link"), onClick: () => act(() => copySessionLink(), { echo:false, vector:"TRACE" }) },
+        { label:t("download_session"), onClick: () => act(() => downloadSessionLog(), { echo:false, vector:"TRACE" }) },
+        { label:t("trace_affirm"), onClick: () => act(() => registerTraceMark("affirm"), { echo:false, vector:"TRACE" }) },
+        { label:t("trace_contest"), onClick: () => act(() => registerTraceMark("contest"), { echo:false, vector:"TRACE" }) },
+        { label:t("trace_unclear"), onClick: () => act(() => registerTraceMark("unclear"), { echo:false, vector:"TRACE" }) },
+        { label:t("trace_refuse"), onClick: () => act(() => registerTraceMark("refuse"), { echo:false, vector:"TRACE" }) },
+        { label:t("exit"), onClick: () => act(() => exitMapMenu(), { echo:false, vector:"FLOW" }) },
+      ];
       setChoices(btns);
       return;
     }
@@ -2695,6 +3065,7 @@
 
   async function boot(){
     lockKeyboard();
+    const hashState = readHashState();
     const buf = $("#buffer");
     if(buf){
       buf.addEventListener("click", (e) => {
@@ -2704,6 +3075,7 @@
           if(!id) return;
           click();
           state.vector = "MAP";
+          registerChoice(`MAP NODE ${id.toUpperCase()}`, "map");
           if(isOriginWorldId(id) && node.getAttribute("data-origin-locked") === "1"){
             openOriginMenu();
             render();
@@ -2721,6 +3093,7 @@
           if(!name) return;
           click();
           state.vector = "ROLE";
+          registerChoice(`SPEAKER ${name.toUpperCase()}`, "role");
           jumpToSpeaker(name);
           render();
           persist();
@@ -2732,6 +3105,7 @@
           if(!word) return;
           click();
           state.vector = "GATE";
+          registerChoice(`KEYWORD ${word.toUpperCase()}`, "timeline");
           jumpToKeyword(word);
           render();
           persist();
@@ -2748,6 +3122,7 @@
     }
     await bootBuildStamp();
     state.lang = detectLang();
+    if(hashState.lang) state.lang = hashState.lang;
     document.documentElement.lang = state.lang;
     updateLangUI();
     state.worlds = await loadWorldsForLang(state.lang);
@@ -2768,7 +3143,11 @@
     const worlds = state.worlds?.worlds || [];
     state.canonId = state.worlds?.canonical || (worlds[0]?.id || null);
 
+    state.community = readCommunityStore();
     restore();
+    applyHashState(hashState);
+    ensureSessionSeed();
+    if(!state.sessionStartedAt) state.sessionStartedAt = Date.now();
     state.firstVisit = !state.hasSaved;
 
     if(!state.worldId){
@@ -2792,6 +3171,11 @@
       appendChunk({hackle:false});
     }
     state.vector = "FLOW";
+    forceGhost();
+    traceEvent("session_start", {
+      firstVisit: !!state.firstVisit,
+      traceEndpoint: !!TRACE_ENDPOINT,
+    });
     coldBootMaybe("enter");
     spriteTick();
 

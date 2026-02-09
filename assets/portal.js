@@ -87,7 +87,7 @@
   const PRESENT_ERA = "2026";
   const ORIGIN_WORLD_IDS = ["origin-aleph"];
   const ORIGIN_ERA = "א";
-  const AUTO_ORIGIN_REVEAL = false;
+  const AUTO_ORIGIN_REVEAL = true;
   const I18N = {
     en: {
       lang_label: "LANG",
@@ -1454,18 +1454,20 @@
     if(state.originUnlocked) return false;
     if(!hasOriginWorld()) return false;
     if(state.anomalyMenu || state.tribunalMenu || state.counterMenu || state.originMenu || state.timeMenu || state.mapMenu || state.roleMenu || state.scrollMode) return false;
-    if(state.actionCount < 3) return false;
+    if((state.mapVisits || 0) < 1) return false;
+    if(state.clicks < 8) return false;
+    if(state.actionCount < 6) return false;
     const now = Date.now();
     if(now < state.nextOriginAt) return false;
     if(!canSpendHeat(0.42)) return false;
     const eligibleVectors = new Set(["WORMHOLE", "REPLAY", "SHIFT", "JUMP", "HACKLE"]);
-    const forced = state.actionCount >= 5;
-    const p = forced ? 1 : (eligibleVectors.has(vector) ? 0.24 : 0.08);
+    const forced = state.actionCount >= 12;
+    const p = forced ? 1 : (eligibleVectors.has(vector) ? 0.16 : 0.04);
     if(Math.random() >= p) return false;
     const opened = openOriginMenu();
     if(opened){
       spendHeat(0.42);
-      state.nextOriginAt = now + 70000 + Math.floor(Math.random() * 120000);
+      state.nextOriginAt = now + 110000 + Math.floor(Math.random() * 170000);
     }
     return opened;
   }

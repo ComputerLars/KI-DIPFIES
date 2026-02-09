@@ -148,6 +148,8 @@
       stats_context_line: ({ context, total, variants }) => `(stats: ${total} traces in ${context}; ${variants} vectors observed)`,
       stats_top_line: ({ choice, percent, count }) => `(top vector: ${choice} :: ${percent}% (${count}) )`,
       stats_global_line: ({ total, contexts }) => `(global local memory: ${total} traces across ${contexts} contexts)`,
+      stats_remote_line: ({ choices, sessions, events }) => `(pi memory: ${choices} choices / ${sessions} sessions / ${events} events)`,
+      stats_remote_top_line: ({ choice, percent, count }) => `(pi top: ${choice} :: ${percent}% (${count}) )`,
       sager_idle: "SAGER CHANNEL IDLE // waiting for next contradiction",
       origin_key_locked_line: "ORIGIN KEYSPACE: SEALED (MAP ACCESS ONLY).",
       origin_key_open_line: "ORIGIN KEYSPACE: OPEN.",
@@ -263,6 +265,8 @@
       stats_context_line: ({ context, total, variants }) => `(Statistik: ${total} Spuren in ${context}; ${variants} Vektoren beobachtet)`,
       stats_top_line: ({ choice, percent, count }) => `(Top-Vektor: ${choice} :: ${percent}% (${count}) )`,
       stats_global_line: ({ total, contexts }) => `(globale lokale Erinnerung: ${total} Spuren über ${contexts} Kontexte)`,
+      stats_remote_line: ({ choices, sessions, events }) => `(Pi-Speicher: ${choices} Entscheidungen / ${sessions} Sessions / ${events} Events)`,
+      stats_remote_top_line: ({ choice, percent, count }) => `(Pi-Top: ${choice} :: ${percent}% (${count}) )`,
       sager_idle: "SAGER-KANAL IDLE // wartet auf den nächsten Widerspruch",
       origin_key_locked_line: "ORIGIN-SCHLUESSELRAUM: VERSIEGELT (NUR UEBER KARTE).",
       origin_key_open_line: "ORIGIN-SCHLUESSELRAUM: OFFEN.",
@@ -661,18 +665,34 @@
     const payload = JSON.stringify(event);
     try{
       if(navigator.sendBeacon){
-        const blob = new Blob([payload], { type:"application/json" });
+        const blob = new Blob([payload], { type:"text/plain;charset=UTF-8" });
         navigator.sendBeacon(TRACE_ENDPOINT, blob);
         return;
       }
     }catch{}
     fetch(TRACE_ENDPOINT, {
       method:"POST",
-      mode:"no-cors",
+      mode:"cors",
       keepalive:true,
-      headers:{ "content-type":"application/json" },
+      headers:{ "content-type":"text/plain;charset=UTF-8" },
       body: payload,
     }).catch(() => {});
+  }
+  function statsEndpoint(){
+    if(!TRACE_ENDPOINT) return "";
+    return TRACE_ENDPOINT.replace(/\/trace\/?$/i, "/stats");
+  }
+  function fetchRemoteStats(contextKey){
+    const url = statsEndpoint();
+    if(!url) return Promise.resolve(null);
+    const u = `${url}${url.includes("?") ? "&" : "?"}context=${encodeURIComponent(contextKey)}`;
+    return fetch(u, { cache:"no-store", mode:"cors" })
+      .then(r => r.ok ? r.json() : null)
+      .then(payload => {
+        if(!payload || payload.ok === false) return null;
+        return payload;
+      })
+      .catch(() => null);
   }
   function traceEvent(type, data = {}){
     const world = getWorldById(state.worldId);
@@ -774,6 +794,32 @@
       total: ctx.total,
       top: ctx.top ? (ctx.bucket.labels[ctx.top.key] || ctx.top.key) : null,
       globalTotal: global.total,
+    });
+    fetchRemoteStats(ctx.key).then(remote => {
+      if(!remote || !remote.totals) return;
+      const totals = remote.totals || {};
+      state.buffer.push({
+        text:t("stats_remote_line", {
+          choices: Number(totals.choices || 0),
+          sessions: Number(totals.sessions || 0),
+          events: Number(totals.events || 0),
+        }),
+        hackled:false,
+      });
+      const top = remote.context?.top || null;
+      if(top){
+        state.buffer.push({
+          text:t("stats_remote_top_line", {
+            choice: top.label || top.key || "n/a",
+            percent: Number(top.percent || 0),
+            count: Number(top.count || 0),
+          }),
+          hackled:false,
+        });
+      }
+      state.scrollTopNext = true;
+      render();
+      persist();
     });
   }
   function copySessionLinkAsync(){

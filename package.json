@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:drama": "node scripts/build-drama.mjs"
+    "build:drama": "node scripts/build-drama.mjs",
+    "trace:server": "node scripts/trace-server.mjs"
   },
   "dependencies": {
     "mammoth": "^1.8.0"

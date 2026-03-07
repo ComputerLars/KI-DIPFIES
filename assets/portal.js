@@ -1087,7 +1087,7 @@
   }
   function erasForTimeMenu(){
     const groups = eraGroups();
-    const eras = Array.from(groups.keys()).filter(e => e !== PRESENT_ERA);
+    const eras = Array.from(groups.keys());
     eras.sort((a,b) => {
       const da = eraSortKey(a);
       const db = eraSortKey(b);
@@ -3046,7 +3046,7 @@
     const world = getWorldById(state.worldId);
     const day = getDay(world, state.dayNo);
     const timeEras = erasForTimeMenu();
-    const futureAvailable = timeEras.length > 0;
+    const futureAvailable = timeEras.length > 1;
     const currentEra = worldEra(world) || PRESENT_ERA;
     const inFuture = currentEra !== PRESENT_ERA;
     applyRotation();
@@ -3141,14 +3141,17 @@
       setQuestion(t("time_jump_question"));
       const btns = timeEras.map(({ era }) => ({
         label: era,
-        onClick: () => act(() => { timeJumpToEra(era); state.timeMenu = false; }, { echo:false, vector:"JUMP" }),
+        onClick: () => act(() => {
+          if(era === PRESENT_ERA && inFuture){
+            if(!returnFromFuture()){
+              timeJumpToEra(PRESENT_ERA);
+            }
+          } else {
+            timeJumpToEra(era);
+          }
+          state.timeMenu = false;
+        }, { echo:false, vector:"JUMP" }),
       }));
-      if(inFuture){
-        btns.unshift({
-          label: t("return_2026"),
-          onClick: () => act(() => { returnFromFuture(); state.timeMenu = false; }, { echo:false, vector:"JUMP" }),
-        });
-      }
       btns.push({
         label: t("exit"),
         onClick: () => act(() => { state.timeMenu = false; }, { echo:false, vector:"FLOW" }),
